@@ -113,6 +113,7 @@ import { type DeckLoopRange, useHotCues } from "./useHotCues";
 import { useCueWriter } from "./useCueWriter";
 import { CueColorMenu } from "./CueColorMenu";
 import styles from "./Player.module.css";
+import { usePublishPerformDeck } from "@/perform/deckState"; // FLX: controller LEDs
 
 export interface PlayerProps {
   /** The row the browser has selected, or `null` when nothing is. */
@@ -944,6 +945,7 @@ export const Player = memo(function Player({
     const first = cuesFor(loaded, "memory")[0];
     setCuePoint(first ? first.positionMs / 1000 : 0);
   });
+  usePublishPerformDeck(deck, { cues, padMode }); // FLX: controller LEDs
   // The INFO tab's record, fetched only while that tab is showing — see
   // `useTrackDetails` for why not on every load.
   const details = useTrackDetails(track?.id ?? null, panel === "info");
@@ -2029,6 +2031,7 @@ export const Player = memo(function Player({
       onLoadSelected();
       return true;
     },
+    loadPlayer2: () => { if (deck !== "b" || !onLoadSelected || selectedTrackId === null) return false; onLoadSelected(); return true; }, // FLX: controller LOAD 2
     // The engine's click, not the deck's: the next of the three sounds.
     metronomeSound: () => {
       const sound = preferences.audio.metronomeSound;
@@ -2055,6 +2058,7 @@ export const Player = memo(function Player({
     // auto-repeat then ran the pair thirty times a second for as long as the
     // key was held. `keyup` below lets go.
     cue: once(holdCue),
+    cueRelease: () => { dropCue(); return true; }, // FLX: the controller's CUE release, as the key's keyup
     quantize: live(toggleQuantize),
     memoryCue: once(memory.store),
     previousMemoryCue: live(memory.callPrevious),

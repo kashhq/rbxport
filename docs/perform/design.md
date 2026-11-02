@@ -32,14 +32,14 @@ host emits `perform:event` and the bridge runs the upstream command.
 | Crossfader | fast | `MixerSettings::set_crossfade` |
 | FILTER | fast | needs a per-channel filter in the strip (not in upstream; our `FLX:` addition) |
 | HEADPHONES MIX, channel CUE (PFL) | fast | the cue bus (ours, in `rbl-deck`) |
-| CUE | slow | `cue` |
+| CUE | slow | `cue` on press, `cueRelease` (ours) on release: ends a preview as the key's keyup does |
 | BEAT SYNC / long / SHIFT | slow | `sync` / `masterTempo` / tempo range |
 | LOOP IN/OUT, RELOOP, CALL ◀ ▶ | slow | `loopIn`, `loopOut`, `reloop`, `loopHalf`, `loopDouble` |
 | Hot cue pads 1–8, SHIFT | slow | `hotCueA`…`hotCueH`, `clearHotCueA`… |
 | Beat loop pads | slow | `beatLoop1`…`beatLoop32` on pads 3–8 (upstream's `BEAT_LOOP_BEATS`); the ¼ and ½ pads have no upstream command |
 | Beat jump pads | slow | upstream's fixed jumps (`FIXED_JUMPS`) |
 | Key shift pads | fast | `set_key_shift(semitones)` |
-| BROWSE rotate / press, LOAD 1/2 | slow | `moveDown`/`moveUp` (scope `main`), `loadPlayer1` (scope `a`, Player A registers it); press and LOAD 2 have no upstream command |
+| BROWSE rotate / press, LOAD 1/2 | slow | `moveDown`/`moveUp` (scope `main`), `loadPlayer1` (scope `a`), `loadPlayer2` (ours, scope `b`); the press has no upstream command |
 | Beat FX | — | not in milestone 1 |
 | Sampler, Pad FX, Keyboard, Smart CFX/Fader | — | not in milestone 1 |
 

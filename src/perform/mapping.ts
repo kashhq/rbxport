@@ -2,10 +2,11 @@
  * Which upstream command a controller event runs: the slow path's table, from
  * `docs/perform/design.md`. Pure, so the whole map is enumerable in a test.
  *
- * Only presses run commands. A release runs nothing, and so does any shift
- * variant the design does not name: a shifted control doing its unshifted
- * job would be a surprise on the hardware, where SHIFT always changes what a
- * control does.
+ * Presses run commands, and so does letting go of CUE, which ends a preview
+ * as the key's keyup does. Any other release runs nothing, and so does any
+ * shift variant the design does not name: a shifted control doing its
+ * unshifted job would be a surprise on the hardware, where SHIFT always
+ * changes what a control does.
  */
 import type { CommandScope } from "@/lib/commands";
 import { FIXED_JUMPS, type Action } from "@/lib/shortcuts";
@@ -51,6 +52,14 @@ export const BUTTON_ACTIONS: Readonly<Record<PerformButton, ShiftPair>> = {
   callForward: { plain: "loopDouble", shift: longestFixedJump(1) },
 };
 
+/**
+ * What letting go of a button runs, SHIFT or not: the shift state can change
+ * while the button is down, and a preview that started must still end.
+ */
+export const BUTTON_RELEASE_ACTIONS: Readonly<Partial<Record<PerformButton, Action>>> = {
+  cue: "cueRelease",
+};
+
 /** The beat loop pads' lengths, in beats, pad 0 first. */
 export const BEAT_LOOP_PAD_BEATS = [0.25, 0.5, 1, 2, 4, 8, 16, 32] as const;
 
@@ -91,15 +100,15 @@ export const PAD_ACTIONS: Readonly<Record<PerformPadMode, readonly ShiftPair[]>>
 };
 
 /**
- * The browse section. LOAD 1 is upstream's `loadPlayer1`, which Player A
- * registers. Upstream has no "load on Player 2" command (its context menu's
- * item calls the loader directly) and no command for pressing the browse
- * knob (Enter is `loadPlayer1`), so those two run nothing until there is one.
+ * The browse section. LOAD 1 and 2 are `loadPlayer1` (upstream's, registered
+ * by Player A) and `loadPlayer2` (ours, an `FLX:` row Player B registers).
+ * Upstream has no command for pressing the browse knob (Enter is
+ * `loadPlayer1`), so the press runs nothing.
  */
 export const GLOBAL_ACTIONS: Readonly<Record<PerformGlobalButton, ShiftPair & { scope: CommandScope }>> = {
   browsePress: { plain: null, shift: null, scope: "main" },
   loadA: { plain: "loadPlayer1", shift: null, scope: "a" },
-  loadB: { plain: null, shift: null, scope: "b" },
+  loadB: { plain: "loadPlayer2", shift: null, scope: "b" },
 };
 
 /**
@@ -124,8 +133,8 @@ function pick(pair: ShiftPair | undefined, shift: boolean): Action | null {
 }
 
 /**
- * The commands an event runs, in order: none for a release or an unmapped
- * control, one per detent for the browse knob.
+ * The commands an event runs, in order: none for an unmapped control, one
+ * per detent for the browse knob.
  */
 export function commandsFor(event: PerformEvent): PerformCommand[] {
   switch (event.kind) {
@@ -133,8 +142,9 @@ export function commandsFor(event: PerformEvent): PerformCommand[] {
     case "disconnected":
       return [];
     case "button": {
-      if (!event.pressed) return [];
-      const action = pick(BUTTON_ACTIONS[event.button], event.shift);
+      const action = event.pressed
+        ? pick(BUTTON_ACTIONS[event.button], event.shift)
+        : BUTTON_RELEASE_ACTIONS[event.button] ?? null;
       return action ? [{ action, scope: event.deck }] : [];
     }
     case "pad": {

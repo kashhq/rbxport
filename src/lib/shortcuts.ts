@@ -26,6 +26,7 @@ export type Action =
   // Enter loads the highlighted track onto Player 1 (deck A), wherever the
   // focus is in the browser — the keyboard counterpart of double-clicking it.
   | "loadPlayer1"
+  | "loadPlayer2" // FLX: LOAD 2 on the controller; no key binds it
   // Track > Locate track loaded on deck (command + L): scrolls the list to
   // the track a deck holds and highlights it.
   | "locateLoaded"
@@ -57,6 +58,7 @@ export type Action =
   // actions with shift are Player B's.
   | "playPause"
   | "cue"
+  | "cueRelease" // FLX: letting go of the controller's CUE; no key binds it
   | "quantize"
   | "jumpBack"
   | "jumpForward"

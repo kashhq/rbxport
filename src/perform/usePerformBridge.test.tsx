@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { __setBackend } from "@/ipc/client";
 import type { Backend, DeckTick, Tick } from "@/ipc/types";
+import { __resetPerformDeckState, publishPerformDeckState } from "./deckState";
 import type { PerformEvent, PerformLeds } from "./types";
 import { usePerformBridge, type PerformBridgeState } from "./usePerformBridge";
 
@@ -81,6 +82,7 @@ beforeEach(async () => {
     },
   } as unknown as Backend);
   localStorage.clear();
+  __resetPerformDeckState();
   const element = document.createElement("div");
   document.body.append(element);
   root = createRoot(element);
@@ -109,9 +111,31 @@ describe("usePerformBridge", () => {
     ]);
   });
 
-  it("runs nothing on a release", async () => {
+  it("runs nothing on a release but CUE's, which ends the preview", async () => {
     await emit({ kind: "button", deck: "a", button: "play", shift: false, pressed: false });
     expect(runCommand).not.toHaveBeenCalled();
+    await emit({ kind: "button", deck: "b", button: "cue", shift: false, pressed: true });
+    await emit({ kind: "button", deck: "b", button: "cue", shift: false, pressed: false });
+    expect(runCommand.mock.calls).toEqual([["cue", { scope: "b" }], ["cueRelease", { scope: "b" }]]);
+  });
+
+  it("reports the hot cue slots, SYNC and pad mode the view publishes", async () => {
+    await emit({ kind: "connected", name: "DDJ-FLX4" });
+    await act(async () => {
+      publishPerformDeckState("a", { hotCues: [true, false, true, false, false, false, false, true], padMode: "hotCue" });
+      publishPerformDeckState("b", { synced: true });
+      await Promise.resolve();
+    });
+    expect(host.leds.at(-1)?.a).toMatchObject({
+      hotCues: [true, false, true, false, false, false, false, true], sync: false, padMode: "hotCue",
+    });
+    expect(host.leds.at(-1)?.b).toMatchObject({ sync: true, padMode: null });
+    const reports = host.leds.length;
+    await act(async () => {
+      publishPerformDeckState("b", { synced: true });
+      await Promise.resolve();
+    });
+    expect(host.leds).toHaveLength(reports);
   });
 
   it("warns once per unmapped shape, whichever deck", async () => {
