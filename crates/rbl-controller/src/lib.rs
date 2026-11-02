@@ -15,7 +15,7 @@
 
 mod flx4;
 
-pub use flx4::{DeckLeds, Flx4, Leds};
+pub use flx4::{DeckLeds, Flx4, KeyShiftPad, Leds};
 
 /// A player deck. On the FLX4 deck 1 is `A` (MIDI channel 1) and deck 2 is `B`
 /// (channel 2). flx4-midi §1

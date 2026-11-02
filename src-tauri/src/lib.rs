@@ -34,6 +34,7 @@ mod device_library;
 mod link;
 mod rx3_link;
 mod network_labels;
+mod perform; // FLX: the DJ-controller host
 pub mod logging;
 mod log_window;
 pub mod menu;
@@ -443,6 +444,7 @@ pub fn run() {
             // scriptable classes, before any Apple Event can arrive.
             crate::scripting::install(app.handle());
             spawn_library_load(app.handle().clone());
+            crate::perform::start(app.handle()); // FLX: manages `Arc<Perform>` and starts the controller watcher
             // Join the network on start: a passive watcher that hears every
             // player and mixer and reports them, so the shell can offer LINK
             // the moment one appears. Nothing is transmitted until LINK is on.
@@ -712,6 +714,7 @@ pub fn run() {
             scripting::script_preferences,
             // Test-only: the page answering `RBXPORT_TEST_PORT`'s questions.
             test_port::test_eval_result,
+            perform::perform_status, perform::perform_leds, // FLX: the controller host's commands
         ])
         .build(context);
 

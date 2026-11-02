@@ -93,3 +93,13 @@ to the fewest lanes ≥4 at the same format and rate. `set_audio_config` keeps
 `cue` via `..player.wish()`. The perform host sets it on controller connect.
 Consequence: setting it drops the engine (`Player::set_wish` returns true), so
 the host emits `deck:reset` as `set_audio_config` does.
+
+## 2026-11-02 — The perform host owns pad mode, tempo range and engine replay
+
+Why: the FLX4 switches pad pages itself and the UI never reports them; the UI's
+tempo range is frontend-only; a cue-bus `set_wish` rebuilds the engine at defaults.
+Decision: `HostState` tracks the page from mode-button presses (LEDs prefer it to
+the UI's `padMode`); the slider is a fixed ±6 % (`TEMPO_RANGE`, rekordbox's
+default); 14-bit values and PFL are replayed onto any engine not seen (by `Weak`).
+Consequence: SHIFT+SYNC's range never reaches the slider, and with no soft
+takeover a connect jumps each deck's tempo to its slider.

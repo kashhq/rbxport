@@ -5,7 +5,7 @@ use std::collections::HashSet;
 
 use crate::{
     Button, Controller, Deck, DeckControl, DeckLeds, Event, Flx4, FxChannel, GlobalButton,
-    GlobalControl, JogSurface, Leds, PadMode,
+    GlobalControl, JogSurface, KeyShiftPad, Leds, PadMode,
 };
 
 const fn button(deck: Deck, button: Button, shift: bool) -> Event {
@@ -596,4 +596,63 @@ fn blackout_clears_everything_and_the_sampler_pads() {
     }
     assert!(blackout.contains(&[0xB1, 0x02, 0x00]));
     assert!(blackout.contains(&[0x9F, 0x01, 0x00]));
+}
+
+#[test]
+fn key_shift_pads_follow_the_section_4_table() {
+    let set: Vec<_> = (0..8).map(|pad| Flx4::key_shift_pad(pad, false)).collect();
+    let expected: Vec<_> = [0, 1, 2, 3, -3, -2, -1, 0]
+        .into_iter()
+        .map(|s| Some(KeyShiftPad::Set(s)))
+        .collect();
+    assert_eq!(set, expected);
+    let step: Vec<_> = (0..8).map(|pad| Flx4::key_shift_pad(pad, true)).collect();
+    let expected: Vec<_> = [1, 2, 3, 4, -4, -3, -2, -1]
+        .into_iter()
+        .map(|s| Some(KeyShiftPad::Step(s)))
+        .collect();
+    assert_eq!(step, expected);
+    assert_eq!(Flx4::key_shift_pad(8, false), None);
+}
+
+#[test]
+fn key_shift_led_bitmap_matches_the_section_4_table() {
+    // Written as the doc's bit strings, pad 1 first.
+    let bits = |s: &str| -> [bool; 8] {
+        let mut out = [false; 8];
+        for (slot, c) in out.iter_mut().zip(s.chars().filter(|c| *c != ' ')) {
+            *slot = c == '1';
+        }
+        out
+    };
+    let table = [
+        (0, "1000 0001"),
+        (1, "0100 0000"),
+        (2, "0010 0000"),
+        (3, "0001 0000"),
+        (4, "1001 0000"),
+        (5, "0101 0000"),
+        (6, "0011 0000"),
+        (7, "1011 0000"),
+        (8, "0111 0000"),
+        (9, "1111 0000"),
+        (12, "1111 0000"),
+        (-1, "0000 0010"),
+        (-2, "0000 0100"),
+        (-3, "0000 1000"),
+        (-4, "0000 1001"),
+        (-5, "0000 1010"),
+        (-6, "0000 1100"),
+        (-7, "0000 1101"),
+        (-8, "0000 1110"),
+        (-9, "0000 1111"),
+        (i8::MIN, "0000 1111"),
+    ];
+    for (semitones, expected) in table {
+        assert_eq!(
+            DeckLeds::key_shift_pads(semitones),
+            bits(expected),
+            "{semitones:+} semitones"
+        );
+    }
 }

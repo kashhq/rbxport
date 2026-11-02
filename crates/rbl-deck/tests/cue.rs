@@ -152,6 +152,38 @@ fn a_deck_faded_out_of_the_room_is_still_in_the_headphones() {
 }
 
 #[test]
+fn a_closed_channel_fader_silences_the_room_but_not_the_headphones() {
+    // The channel fader (`ChannelSettings::set_level`, the controller's) sits
+    // after the PFL tap, as on a DJM: a deck cued with its fader down is heard
+    // in the headphones and nowhere else.
+    let (engine, sink, _dir) = playing();
+    engine.mixer().set_crossfade(0.0);
+    engine.mixer().channels[0].set_level(0.0);
+    engine.cue().set_pfl(0, true);
+    engine.cue().set_mix(0.0);
+    let (master, cue) = settled(&engine, &sink, 1_024);
+    let cue = cue.expect("a cue pair");
+    assert!(peak(&master) < INAUDIBLE, "a closed fader reached the room at {}", peak(&master));
+    let quiet = cue.iter().fold(f32::MAX, |least, s| least.min(s.abs()));
+    assert!((quiet - FLAT).abs() < 0.02, "the cue carried {quiet}, not the deck's {FLAT}");
+}
+
+#[test]
+#[allow(clippy::float_cmp, reason = "the fader's ends and its fallback are exact constants")]
+fn a_channel_fader_is_clamped_and_a_nan_is_the_fader_up() {
+    let mixer = rbl_deck::MixerSettings::default();
+    let channel = &mixer.channels[1];
+    assert_eq!(channel.level(), 1.0, "a fresh channel is at full");
+    channel.set_level(-0.5);
+    assert_eq!(channel.level(), 0.0);
+    channel.set_level(3.0);
+    assert_eq!(channel.level(), 1.0);
+    channel.set_level(0.25);
+    channel.set_level(f32::NAN);
+    assert_eq!(channel.level(), 1.0);
+}
+
+#[test]
 fn mix_at_one_puts_the_master_in_the_headphones() {
     let (engine, sink, _dir) = playing();
     // Crossfader in the middle, so the master is not silence and the

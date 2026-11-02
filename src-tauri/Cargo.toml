@@ -36,6 +36,7 @@ rbl-anlz = { path = "../crates/rbl-anlz" }
 rbl-analysis = { path = "../crates/rbl-analysis" }
 rbl-audio = { path = "../crates/rbl-audio" }
 rbl-deck = { path = "../crates/rbl-deck" }
+rbl-controller = { path = "../crates/rbl-controller" } # FLX: DJ-controller maps for src/perform
 rbl-prolink = { path = "../crates/rbl-prolink" }
 rbl-link = { path = "../crates/rbl-link" }
 rbl-export = { path = "../crates/rbl-export" }

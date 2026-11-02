@@ -4184,6 +4184,7 @@ dependencies = [
  "rbl-anlz",
  "rbl-audio",
  "rbl-backup",
+ "rbl-controller",
  "rbl-core",
  "rbl-db",
  "rbl-dbserver",

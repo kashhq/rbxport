@@ -101,6 +101,7 @@ pub struct ChannelSettings {
     bands: [AtomicU32; 3],
     /// Which of them are killed.
     kills: [AtomicBool; 3],
+    level: AtomicU32, // FLX: the channel fader, 0 to 1 (f32 bits); the controller's, upstream has none
 }
 
 impl Default for ChannelSettings {
@@ -113,6 +114,7 @@ impl Default for ChannelSettings {
                 AtomicU32::new(0.5_f32.to_bits()),
             ],
             kills: [AtomicBool::new(false), AtomicBool::new(false), AtomicBool::new(false)],
+            level: AtomicU32::new(1.0_f32.to_bits()), // FLX: channel fader up
         }
     }
 }
@@ -167,6 +169,10 @@ impl ChannelSettings {
     pub fn killed(&self, band: Band) -> bool {
         self.kills.get(band.index()).is_some_and(|slot| slot.load(Ordering::Relaxed))
     }
+
+    pub fn set_level(&self, level: f32) { self.level.store((if level.is_finite() { level.clamp(0.0, 1.0) } else { 1.0 }).to_bits(), Ordering::Relaxed); } // FLX: channel fader
+
+    pub fn level(&self) -> f32 { f32::from_bits(self.level.load(Ordering::Relaxed)) } // FLX: channel fader
 
     /// The gain each band is asking for, high to low.
     fn wanted(&self, curve: Curve) -> [f32; 3] {
@@ -436,6 +442,7 @@ impl Channel {
     pub fn process(&mut self, out: &mut [f32], settings: &ChannelSettings, curve: Curve, fader: f32, mut tap: Option<&mut [f32]>) { // FLX: cue tap
         let wanted = settings.wanted(curve);
         let trim = settings.trim();
+        let fader = fader * settings.level(); // FLX: the channel fader rides the crossfader's smoothing, after the cue tap
         for (n, frame) in out.chunks_exact_mut(2).enumerate() { // FLX: n indexes the cue tap
             let trim = self.trim.step(trim);
             let fader = self.fader.step(fader);

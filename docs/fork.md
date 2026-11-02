@@ -31,8 +31,17 @@ need no marker; their paths are listed below.
 Each one is a conflict point at the next sync, so each must be small and
 marked. Add to this list in the same change as the edit.
 
-- `src-tauri/src/lib.rs`: the `perform` module line, its managed state, and
-  its commands in `generate_handler!`.
+- `src-tauri/src/lib.rs` (3): `mod perform;` after `mod network_labels;`;
+  `crate::perform::start(app.handle())` in `setup` after
+  `spawn_library_load` (it manages `Arc<Perform>` itself and starts the
+  controller watcher); `perform_status, perform_leds` at the end of
+  `generate_handler!`.
+- `src-tauri/Cargo.toml` (1): the `rbl-controller` path dependency after
+  `rbl-deck` (`midir` was already there per platform).
+- The channel fader: `crates/rbl-deck/src/mixer.rs` (5) gives
+  `ChannelSettings` a `level` (default 1.0) with `set_level`/`level`, and
+  `Channel::process` multiplies it into the crossfader gain before
+  smoothing, so it sits after the PFL tap. Tested in our `tests/cue.rs`.
 - `src/app/App.tsx`: four `FLX:` lines: the `usePublishPerformSync` import
   after the `nativeMenu` import; the lazy `PerformBridge` import after the
   other `lazy(...)` dialogs; `usePublishPerformSync(synced)` right after the
@@ -55,8 +64,9 @@ marked. Add to this list in the same change as the edit.
     (the cue pair); `StreamWish` gains `cue: bool`; `configure()` calls
     `cue::widen_for_cue` (widens only when `wish.cue`); `build()` takes the
     flag and writes lanes 3–4 from the cue pair; `NullSink` passes `None`.
-  - `crates/rbl-deck/src/mixer.rs` (5): `Channel::process` gains a pre-fader
-    `tap` (post-EQ samples added into it).
+  - `crates/rbl-deck/src/mixer.rs` (5 of its 10; the other 5 are the
+    channel fader above): `Channel::process` gains a pre-fader `tap`
+    (post-EQ samples added into it).
   - `crates/rbl-deck/src/lib.rs` (19): `mod cue`, `CueSettings` export,
     `Engine::cue()`, and the PFL taps plus `CueMixer::finish` (with the
     master's `LimiterSettings`) in the render closure.

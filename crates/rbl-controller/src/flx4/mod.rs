@@ -14,6 +14,15 @@ use crate::{
 
 pub use leds::{DeckLeds, Leds};
 
+/// A key-shift pad's meaning, from [`Flx4::key_shift_pad`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyShiftPad {
+    /// Semitones from the track's own key.
+    Set(i8),
+    /// Semitones from the deck's current shift.
+    Step(i8),
+}
+
 /// The FLX4 decoder. Holds the latched MSB of every 14-bit control.
 #[derive(Debug, Clone, Default)]
 pub struct Flx4 {
@@ -31,6 +40,21 @@ impl Flx4 {
 
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// What a key-shift pad asks for. Unshifted pads set the key outright,
+    /// 0, +1, +2, +3, −3, −2, −1, 0; shifted pads step it, +1, +2, +3, +4,
+    /// −4, −3, −2, −1 (flx4-midi §4, Mixxx's meaning). `None` past pad 8.
+    pub fn key_shift_pad(pad: u8, shift: bool) -> Option<KeyShiftPad> {
+        const SET: [i8; 8] = [0, 1, 2, 3, -3, -2, -1, 0];
+        const STEP: [i8; 8] = [1, 2, 3, 4, -4, -3, -2, -1];
+        let table = if shift { &STEP } else { &SET };
+        let semitones = *table.get(usize::from(pad))?;
+        Some(if shift {
+            KeyShiftPad::Step(semitones)
+        } else {
+            KeyShiftPad::Set(semitones)
+        })
     }
 
     /// Decode one MIDI message (a 3-byte note or CC; `SysEx` and anything else

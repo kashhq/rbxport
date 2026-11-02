@@ -99,6 +99,36 @@ impl Leds {
 }
 
 impl DeckLeds {
+    /// The key-shift pads' bitmap for a deck shifted `semitones` from its
+    /// key, pad 1 first: the §4 table, saturating past ±8. flx4-midi §4
+    pub fn key_shift_pads(semitones: i8) -> [bool; 8] {
+        // Bit 7 is pad 1. Index 0 is −9 or lower, 9 is no shift, 18 is +9 or higher.
+        const BITMAP: [u8; 19] = [
+            0b0000_1111, // < −8
+            0b0000_1110, // −8
+            0b0000_1101, // −7
+            0b0000_1100, // −6
+            0b0000_1010, // −5
+            0b0000_1001, // −4
+            0b0000_1000, // −3
+            0b0000_0100, // −2
+            0b0000_0010, // −1
+            0b1000_0001, // 0
+            0b0100_0000, // +1
+            0b0010_0000, // +2
+            0b0001_0000, // +3
+            0b1001_0000, // +4
+            0b0101_0000, // +5
+            0b0011_0000, // +6
+            0b1011_0000, // +7
+            0b0111_0000, // +8
+            0b1111_0000, // > +8
+        ];
+        let index = usize::try_from(semitones.clamp(-9, 9) + 9).unwrap_or(9);
+        let bits = BITMAP.get(index).copied().unwrap_or(0);
+        std::array::from_fn(|pad| bits & (0x80 >> pad) != 0)
+    }
+
     fn write(&self, deck: Deck, out: &mut Vec<[u8; 3]>) {
         let channel = map::deck_channel(deck);
         let note = map::NOTE_ON | channel;

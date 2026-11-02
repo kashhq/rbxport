@@ -29,12 +29,12 @@ Ours, additive on top:
   LED state → MIDI bytes, one map per controller. No Tauri, no device I/O.
 - `src-tauri/src/perform/`: owns the `midir` connection and the MIDI thread.
   Two paths out of it:
-  - **fast path**: events that are engine calls already (play/pause, jog,
-    tempo fader, channel fader, EQ, trim, crossfader) go straight to the
+  - **fast path**: events that are engine calls already (jog, tempo
+    fader, channel fader, EQ, trim, crossfader, PFL, key shift) go straight to the
     `rbl-deck` `Engine`, never through the UI. Jog and faders must not wait
     on a webview round trip.
   - **slow path**: everything the frontend owns (hot cues, loops, beat jump,
-    sync, quantize, browse, load) is emitted as a `perform:event` and the UI
+    sync, quantize, browse, load, and PLAY so quantize has one owner) is emitted as a `perform:event` and the UI
     bridge runs the matching `runCommand`.
 - `src/perform/`: the bridge. It listens to `perform:event`, calls
   `runCommand` with the deck scope, and pushes the LED-relevant state
