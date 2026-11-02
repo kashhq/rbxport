@@ -33,7 +33,9 @@ marked. Add to this list in the same change as the edit.
 
 - `src-tauri/src/lib.rs`: the `perform` module line, its managed state, and
   its commands in `generate_handler!`.
-- `src/app/App.tsx`: one line mounting the controller bridge.
+- `src/app/App.tsx`: two `FLX:` lines: the lazy `PerformBridge` import
+  after the other `lazy(...)` dialogs, and `<Suspense fallback={null}><PerformBridge /></Suspense>`
+  right after `<ConfirmHost />` in the render.
 - `crates/rbl-deck/src/sink.rs`, `lib.rs`, `mixer.rs`: the cue (headphone)
   bus — a second stereo pair rendered to output lanes 3–4. (Planned; update
   when landed.)

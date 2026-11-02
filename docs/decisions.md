@@ -45,3 +45,14 @@ device. The map is derived from Mixxx's GPL-2 FLX4 mapping (same licence as
 rbxport) and recorded in `docs/perform/flx4-midi.md`.
 Consequence: a second controller is a new map module and a test file, no app
 changes.
+
+## 2026-11-02 — Bridge IPC lives in `src/ipc/perform.ts`; some LEDs are dark
+
+Why: adding `perform_*` to upstream's `Backend` means editing its types, client
+and mock. Hot cue slots (Player's `cues` prop), SYNC (`App.tsx` `synced` state)
+and pad mode (Player's `padMode`) are component state we may not edit.
+Decision: a standalone IPC module, no-op outside Tauri. LEDs send master tempo
+and CUE from `deck:tick`, Q from `deckQuantize.ts` re-read per tick; the rest
+dark. Unshifted-only rows: a shift variant the design does not name runs nothing.
+Consequence: lighting slots/SYNC needs an `FLX:` publish line; controller CUE
+cannot end a preview (upstream ends it on keyup, not a command).
