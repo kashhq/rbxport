@@ -72,7 +72,7 @@ Ours, additive on top:
 | What | Command |
 | --- | --- |
 | Install | `pnpm install --frozen-lockfile` (Node 24, pnpm 10.17.1) |
-| Toolchain | Rust via Homebrew rustup, keg-only: `export PATH=/opt/homebrew/opt/rustup/bin:$PATH`; `rust-toolchain.toml` pins 1.99.0 and rustup fetches it on first use. Node must be 24: on Node 22 its experimental `localStorage` global shadows jsdom's and 27 upstream tests fail with `localStorage.clear is not a function`. |
+| Toolchain | Rust via Homebrew rustup, keg-only: `export PATH=/opt/homebrew/opt/rustup/bin:$PATH`; `rust-toolchain.toml` pins 1.99.0 and rustup fetches it on first use. Node is the mise-managed 22 (`~/.local/share/mise`); the suite is green there. Do not put `/opt/homebrew/bin` ahead of it: Homebrew's Node 25 enables a Web Storage global by default, it shadows jsdom's, and 27 upstream tests fail with `localStorage.clear is not a function`. |
 | Desktop dev | `pnpm dev` |
 | Browser dev (mock backend) | `pnpm dev:web` |
 | Frontend checks | `pnpm typecheck && pnpm lint && pnpm test` |
