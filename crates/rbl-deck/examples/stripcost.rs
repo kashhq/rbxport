@@ -32,7 +32,7 @@ fn main() {
         }
         for (i, channel) in channels.iter_mut().enumerate() {
             let settings = &mixer.channels[i];
-            channel.process(&mut buffer, settings, mixer.curve(), 1.0);
+            channel.process(&mut buffer, settings, mixer.curve(), 1.0, None); // FLX: cue tap
         }
     }
     let took = start.elapsed();

@@ -16,7 +16,8 @@ use crate::{DeckError, Result};
 
 /// Fills a stereo interleaved buffer. Called on the audio thread, so it obeys
 /// the realtime rules: no allocation, no lock, no syscall, no panic.
-pub type Render = Box<dyn FnMut(&mut [f32]) + Send>;
+/// FLX: the second buffer is the headphone (cue) pair, `None` without lanes 3–4.
+pub type Render = Box<dyn FnMut(&mut [f32], Option<&mut [f32]>) + Send>; // FLX: cue bus
 
 pub trait Sink: Send + Sync {
     fn health(&self) -> AudioHealth { AudioHealth::default() }
@@ -238,6 +239,7 @@ pub struct StreamWish {
     pub sample_rate: Option<u32>,
     /// Frames per callback.
     pub buffer_frames: Option<u32>,
+    pub cue: bool, // FLX: open lanes 3-4 for the headphone cue bus (the perform host sets it)
 }
 
 /// The device's configuration for a wish: its default, at the wished rate
@@ -249,6 +251,7 @@ fn configure(device: &cpal::Device, wish: StreamWish) -> Result<(cpal::StreamCon
     let format = supported.sample_format();
     let buffer_range = *supported.buffer_size();
     let mut config: cpal::StreamConfig = supported.into();
+    crate::cue::widen_for_cue(device, format, &mut config, wish.cue); // FLX: open lanes 3-4 for the cue bus, when wished
 
     if let Some(rate) = wish.sample_rate {
         // Among the device's ranges, one at the default format that covers
@@ -313,10 +316,10 @@ fn build_stream(render: Render, wanted: Option<&str>, wish: StreamWish, health: 
         _ => tracing::error!(error = %e, "audio device error"),
     };
     let stream = match format {
-        cpal::SampleFormat::F32 => build::<f32>(&device, config, channels, render, error, health),
-        cpal::SampleFormat::I16 => build::<i16>(&device, config, channels, render, error, health),
-        cpal::SampleFormat::U16 => build::<u16>(&device, config, channels, render, error, health),
-        cpal::SampleFormat::I32 => build::<i32>(&device, config, channels, render, error, health),
+        cpal::SampleFormat::F32 => build::<f32>(&device, config, channels, render, error, health, wish.cue), // FLX: cue bus
+        cpal::SampleFormat::I16 => build::<i16>(&device, config, channels, render, error, health, wish.cue), // FLX: cue bus
+        cpal::SampleFormat::U16 => build::<u16>(&device, config, channels, render, error, health, wish.cue), // FLX: cue bus
+        cpal::SampleFormat::I32 => build::<i32>(&device, config, channels, render, error, health, wish.cue), // FLX: cue bus
         other => Err(DeckError::Device(format!("this device wants {other} samples, which we do not write"))),
     }?;
     Ok((stream, rate))
@@ -333,6 +336,7 @@ fn build<T>(
     mut render: Render,
     error: fn(cpal::Error),
     health: Arc<HealthMeter>,
+    cue_wished: bool, // FLX: cue bus
 ) -> Result<cpal::Stream>
 where
     T: cpal::SizedSample + cpal::FromSample<f32>,
@@ -340,6 +344,7 @@ where
     // Allocated here, on the control thread, and only written to inside the
     // callback: the callback itself never allocates.
     let mut scratch = vec![0.0_f32; SCRATCH_FRAMES * 2];
+    let mut cue = vec![0.0_f32; SCRATCH_FRAMES * 2]; // FLX: the headphone (cue) pair
     let lanes = channels.max(1) as usize;
     let rate = config.sample_rate;
 
@@ -359,12 +364,15 @@ where
                         continue;
                     };
                     stereo.fill(0.0);
-                    render(stereo);
+                    let mut cue_pair = if crate::cue::renders_cue(cue_wished, lanes) { cue.get_mut(..frames * 2) } else { None }; // FLX: cue bus
+                    render(stereo, cue_pair.as_deref_mut()); // FLX: cue bus
                     // Stereo into however many lanes the device has: a third
                     // and further channels stay silent rather than repeating.
-                    for (frame, lane) in stereo.chunks_exact(2).zip(chunk.chunks_mut(lanes)) {
+                    // FLX: except lanes 3-4, which carry the cue pair when there is one.
+                    for (n, (frame, lane)) in stereo.chunks_exact(2).zip(chunk.chunks_mut(lanes)).enumerate() { // FLX: n indexes the cue pair
                         for (at, sample) in lane.iter_mut().enumerate() {
                             let value = if at < 2 { frame.get(at).copied().unwrap_or(0.0) } else { 0.0 };
+                            let value = if (2..4).contains(&at) { cue_pair.as_deref().and_then(|cue| cue.get(n * 2 + at - 2)).copied().unwrap_or(0.0) } else { value }; // FLX: cue bus
                             *sample = T::from_sample(value);
                         }
                     }
@@ -412,7 +420,7 @@ impl NullSink {
             self.linger.store(left.saturating_sub(frames), Ordering::SeqCst);
         }
         if let Ok(mut render) = self.render.lock() {
-            render(&mut out);
+            render(&mut out, None); // FLX: no cue lanes on a null sink
         }
         out
     }
@@ -448,7 +456,7 @@ mod tests {
 
     #[test]
     fn a_stopped_null_sink_gives_silence_and_does_not_pull() {
-        let sink = NullSink::new(44_100, Box::new(|out| out.fill(0.5)));
+        let sink = NullSink::new(44_100, Box::new(|out, _| out.fill(0.5))); // FLX: cue bus
         assert_eq!(sink.pull(4), vec![0.0; 8]);
         sink.start().expect("start");
         assert_eq!(sink.pull(4), vec![0.5; 8]);

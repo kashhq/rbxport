@@ -29,6 +29,7 @@
 
 mod block;
 mod clock;
+mod cue; // FLX: headphone cue bus
 mod deck;
 /// Streaming decoder, also used by the close-zoom PCM waveform command.
 pub mod decode;
@@ -42,6 +43,7 @@ mod rubberband;
 mod scrub;
 mod health;
 pub use health::AudioHealth;
+pub use cue::CueSettings; // FLX: headphone cue bus
 mod sink;
 mod smooth;
 mod stretch;
@@ -59,6 +61,7 @@ pub use sink::{
 };
 
 use block::{Block, RING_BLOCKS};
+use cue::CueMixer; // FLX: headphone cue bus
 use fade::Ramp;
 use smooth::Smoothed;
 
@@ -282,6 +285,7 @@ pub struct Engine {
     limiter: Arc<LimiterSettings>,
     metronome: Arc<MetronomeSettings>,
     metronomes: [Arc<Metronome>; 2],
+    cue: Arc<CueSettings>, // FLX: headphone cue bus
 }
 
 impl Engine {
@@ -339,6 +343,9 @@ impl Engine {
         let strip = Arc::clone(&mixer);
         let limiter = Arc::new(LimiterSettings::default());
         let limiting = Arc::clone(&limiter);
+        let cue = Arc::new(CueSettings::default()); // FLX: headphone cue bus
+        let cueing = Arc::clone(&cue); // FLX: headphone cue bus
+        let mut cue_mixer: Option<CueMixer> = None; // FLX: built at the first callback that has a cue pair, as `level` is
         // The metronome: settings shared by both decks, a grid and a switch
         // per deck, and the clicks in flight owned by the callback.
         let metronome = Arc::new(MetronomeSettings::default());
@@ -363,7 +370,8 @@ impl Engine {
         // open and the sink is opened with this closure.
         let mut level: Option<Smoothed> = None;
         let mut rms = meter::WindowRms::new();
-        let render: Render = Box::new(move |out: &mut [f32]| {
+        let render: Render = Box::new(move |out: &mut [f32], mut cue: Option<&mut [f32]>| { // FLX: cue bus
+            if let Some(cue) = cue.as_deref_mut() { cue.fill(0.0); } // FLX: the PFL taps add into it
             let rate = mixing.rate();
             rms.set_rate(rate);
             let channels =
@@ -374,7 +382,8 @@ impl Engine {
             // mixer is: a per-channel EQ applied to the sum would be one EQ.
             let target = mixing.gain();
             let level = level.get_or_insert_with(|| Smoothed::new(target, mixing.rate()));
-            for chunk in out.chunks_mut(MIX_FRAMES * 2) {
+            for (n, chunk) in out.chunks_mut(MIX_FRAMES * 2).enumerate() { // FLX: n finds the cue chunk
+                let mut tap = cue.as_deref_mut().and_then(|cue| cue.chunks_mut(MIX_FRAMES * 2).nth(n)); // FLX: cue bus
                 let Some(buffer) = scratch.get_mut(..chunk.len()) else { continue };
                 let Some(click_buffer) = click_scratch.get_mut(..chunk.len()) else { continue };
                 click_buffer.fill(0.0);
@@ -387,7 +396,7 @@ impl Engine {
                     let after = reader.clock.position();
                     let fader = if i == 0 { fade_a } else { fade_b };
                     let Some(settings) = strip.channels.get(i) else { continue };
-                    channel.process(buffer, settings, curve, fader);
+                    channel.process(buffer, settings, curve, fader, tap.as_deref_mut().filter(|_| cueing.pfl(i))); // FLX: PFL, pre-fader
                     // The click after the strip, so an EQ cut does not muffle
                     // it, and only while the deck is playing: a scrub crosses
                     // beats too, and nobody wants it clicking.
@@ -441,6 +450,8 @@ impl Engine {
             mixing.rms_left.store(rms_left.to_bits(), Ordering::Relaxed);
             mixing.rms_right.store(rms_right.to_bits(), Ordering::Relaxed);
             mixing.report(left, right);
+            // FLX: the headphone mix, from the PFL sum and the finished master.
+            if let Some(cue) = cue { cue_mixer.get_or_insert_with(|| CueMixer::new(&cueing, rate)).finish(cue, out, &cueing, &limiting); } // FLX: cue bus, limited as the master is
         });
 
         let sink = open(render)?;
@@ -463,7 +474,7 @@ impl Engine {
         let decks: [deck::DeckHandle; 2] = handles
             .try_into()
             .map_err(|_| DeckError::Device("could not start both decks".to_owned()))?;
-        Ok(Self { decks, sink, sample_rate, master, mixer, limiter, metronome, metronomes })
+        Ok(Self { decks, sink, sample_rate, master, mixer, limiter, metronome, metronomes, cue }) // FLX: cue bus
     }
 
     /// Device callback deadlines, without opening or polling the device.
@@ -558,6 +569,11 @@ impl Engine {
     pub fn limiter(&self) -> &Arc<LimiterSettings> {
         &self.limiter
     }
+
+    /// FLX: the headphone cue bus — PFL per deck, HEADPHONES MIX, level.
+    pub fn cue(&self) -> &Arc<CueSettings> { // FLX: cue bus
+        &self.cue // FLX: cue bus
+    } // FLX: cue bus
 
     fn deck(&self, deck: Deck) -> Option<&deck::DeckHandle> {
         self.decks.get(deck.index())

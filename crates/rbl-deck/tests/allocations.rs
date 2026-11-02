@@ -79,6 +79,7 @@ static ALLOCATOR: Counting = Counting;
 struct Watched {
     render: Mutex<Render>,
     buffer: Mutex<Vec<f32>>,
+    cue: Mutex<Vec<f32>>, // FLX: a four-lane device, so the cue bus is in the measured path
     running: Mutex<bool>,
 }
 
@@ -87,6 +88,7 @@ impl Watched {
         Self {
             render: Mutex::new(render),
             buffer: Mutex::new(vec![0.0; BUFFER * 2]),
+            cue: Mutex::new(vec![0.0; BUFFER * 2]), // FLX: cue bus
             running: Mutex::new(false),
         }
     }
@@ -94,11 +96,12 @@ impl Watched {
     /// One callback's worth, counting what it allocated.
     fn pull(&self, count_it: bool) -> usize {
         let mut buffer = self.buffer.lock().unwrap();
+        let mut cue = self.cue.lock().unwrap(); // FLX: cue bus
         let mut render = self.render.lock().unwrap();
         buffer.fill(0.0);
         COUNT.with(|c| c.set(0));
         WATCHING.with(|w| w.set(count_it));
-        render(&mut buffer);
+        render(&mut buffer, Some(&mut cue)); // FLX: cue bus
         WATCHING.with(|w| w.set(false));
         COUNT.with(Cell::get)
     }
@@ -173,6 +176,8 @@ fn the_audio_callback_allocates_nothing() {
     }
     assert!(engine.snapshot().a.loaded, "the deck never loaded");
     engine.play(Deck::A);
+    engine.cue().set_pfl(0, true); // FLX: the PFL tap and the headphone mix run every callback
+    engine.cue().set_mix(0.5); // FLX: cue bus
 
     // The first callback builds what it needs — the channel strips, the
     // smoothing — and that is allowed: it happens once, before any of this is
