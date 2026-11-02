@@ -184,6 +184,32 @@ fn a_channel_fader_is_clamped_and_a_nan_is_the_fader_up() {
 }
 
 #[test]
+fn toggling_pfl_ramps_the_cue_rather_than_stepping_it() {
+    // A steady level through a flat strip, so any jump in the cue pair is
+    // the PFL gain's and not the music's.
+    let mixer = rbl_deck::MixerSettings::default();
+    let mut channel = rbl_deck::Channel::new(RATE);
+    let flat = |frames: usize| vec![FLAT; frames * 2];
+    let mut cue = vec![0.0_f32; SETTLE * 2];
+    channel.process(&mut flat(SETTLE), &mixer.channels[0], rbl_deck::Curve::Eq, 1.0, Some((&mut cue, false)));
+    assert!(peak(&cue) < INAUDIBLE, "an un-PFL'd deck reached the cue at {}", peak(&cue));
+    // On for six buffers, then off for six: each toggle starts its own ramp.
+    let mut heard = Vec::new();
+    for on in [[true; 6], [false; 6]].concat() {
+        let mut chunk = vec![0.0_f32; 512 * 2];
+        channel.process(&mut flat(512), &mixer.channels[0], rbl_deck::Curve::Eq, 1.0, Some((&mut chunk, on)));
+        heard.extend(chunk.chunks_exact(2).map(|frame| frame[0]));
+    }
+    // A 10 ms time constant moves at most FLAT / 441 a frame at 44.1 kHz; a
+    // step would be the whole FLAT in one.
+    let worst = heard.windows(2).fold(0.0_f32, |worst, pair| worst.max((pair[1] - pair[0]).abs()));
+    assert!(worst < FLAT / 200.0, "the cue jumped {worst} between two frames");
+    let top = heard.iter().fold(0.0_f32, |top, s| top.max(*s));
+    assert!((top - FLAT).abs() < 0.02, "PFL never reached the deck's level: {top}");
+    assert!(heard.last().is_some_and(|s| s.abs() < 0.01), "PFL off never faded the cue out");
+}
+
+#[test]
 fn mix_at_one_puts_the_master_in_the_headphones() {
     let (engine, sink, _dir) = playing();
     // Crossfader in the middle, so the master is not silence and the

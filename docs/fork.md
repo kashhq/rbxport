@@ -64,11 +64,13 @@ marked. Add to this list in the same change as the edit.
     (the cue pair); `StreamWish` gains `cue: bool`; `configure()` calls
     `cue::widen_for_cue` (widens only when `wish.cue`); `build()` takes the
     flag and writes lanes 3–4 from the cue pair; `NullSink` passes `None`.
-  - `crates/rbl-deck/src/mixer.rs` (5 of its 10; the other 5 are the
-    channel fader above): `Channel::process` gains a pre-fader `tap`
-    (post-EQ samples added into it).
+  - `crates/rbl-deck/src/mixer.rs` (9 of its 14; the other 5 are the
+    channel fader above): `Channel::process` gains a pre-fader `tap`, the
+    cue pair plus the deck's PFL flag; post-EQ samples are added into it at
+    a per-frame smoothed gain (`Channel::pfl`), so PFL ramps, not clicks.
   - `crates/rbl-deck/src/lib.rs` (19): `mod cue`, `CueSettings` export,
-    `Engine::cue()`, and the PFL taps plus `CueMixer::finish` (with the
+    `Engine::cue()`, and the PFL taps (each deck's flag passed to its strip)
+    plus `CueMixer::finish` (with the
     master's `LimiterSettings`) in the render closure.
   - `src-tauri/src/commands.rs` (1): `set_audio_config` builds its wish with
     `..player.wish()`, so a Preferences change keeps the perform host's `cue`.

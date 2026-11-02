@@ -5,10 +5,7 @@
  *
  * Where each LED's state comes from:
  *
- * - master tempo and CUE: `deck:tick`, as `usePlayback` reads them.
- * - quantize: `deckQuantize.ts`'s saved flag, re-read on each tick. Player
- *   saves it in an effect and announces nothing, and ticks stop when both
- *   decks fall silent, so a Q change on a stopped deck shows at the next tick.
+ * - CUE: `deck:tick`, as `usePlayback` reads it.
  * - hot cue slots, pad mode and SYNC: `deckState.ts`, which Player and App
  *   publish to from their `FLX:` hook lines.
  */
@@ -18,7 +15,6 @@ import { getBackend } from "@/ipc/client";
 import { onPerformEvent, performLeds, performStatus } from "@/ipc/perform";
 import type { DeckId, DeckTick, Tick } from "@/ipc/types";
 import { runCommand } from "@/lib/commands";
-import { loadDeckQuantize } from "@/lib/deckQuantize";
 import { usePerformDeckState, type PerformDeckState } from "./deckState";
 import { commandsFor, isPress } from "./mapping";
 import type { PerformDeckLeds, PerformEvent, PerformLeds } from "./types";
@@ -28,14 +24,12 @@ export interface PerformBridgeState {
   connected: string | null;
 }
 
-/** The LEDs the engine's tick (and the Q flag read beside it) decides. */
-type EngineLeds = Pick<PerformDeckLeds, "masterTempo" | "quantize" | "cue">;
+/** The LEDs the engine's tick decides. */
+type EngineLeds = Pick<PerformDeckLeds, "cue">;
 type EngineDecks = Readonly<Record<DeckId, EngineLeds>>;
 
-function engineLeds(deck: DeckId, tick: DeckTick | null): EngineLeds {
+function engineLeds(tick: DeckTick | null): EngineLeds {
   return {
-    masterTempo: tick?.masterTempo ?? false,
-    quantize: loadDeckQuantize(deck),
     // [ASSUME] lit while a loaded deck is stopped, as a CDJ's CUE is when it
     // waits on its cue point; the host may blink it, which is its business.
     cue: tick !== null && tick.loaded && !tick.playing,
@@ -43,12 +37,12 @@ function engineLeds(deck: DeckId, tick: DeckTick | null): EngineLeds {
 }
 
 function sameEngine(a: EngineLeds, b: EngineLeds): boolean {
-  return a.masterTempo === b.masterTempo && a.quantize === b.quantize && a.cue === b.cue;
+  return a.cue === b.cue;
 }
 
 /** The same object when nothing changed, so a tick that changes no LED renders nothing. */
 function nextEngine(previous: EngineDecks, tick: Tick): EngineDecks {
-  const next = { a: engineLeds("a", tick.a), b: engineLeds("b", tick.b) };
+  const next = { a: engineLeds(tick.a), b: engineLeds(tick.b) };
   return sameEngine(previous.a, next.a) && sameEngine(previous.b, next.b) ? previous : next;
 }
 
@@ -94,7 +88,7 @@ export function routePerformEvent(event: PerformEvent, warned: Set<string>): voi
 
 export function usePerformBridge(): PerformBridgeState {
   const [connected, setConnected] = useState<string | null>(null);
-  const [engine, setEngine] = useState<EngineDecks>(() => ({ a: engineLeds("a", null), b: engineLeds("b", null) }));
+  const [engine, setEngine] = useState<EngineDecks>(() => ({ a: engineLeds(null), b: engineLeds(null) }));
   const ui = usePerformDeckState();
   // Changes identity only when an LED does: both inputs keep theirs otherwise.
   const leds = useMemo<PerformLeds>(() => ({ a: deckLeds(ui.a, engine.a), b: deckLeds(ui.b, engine.b) }), [ui, engine]);
@@ -104,13 +98,17 @@ export function usePerformBridge(): PerformBridgeState {
   // window opened (its `connected` event went out before anyone listened).
   useEffect(() => {
     let live = true;
+    // Once any event has arrived it is newer than whatever the status call
+    // answers, however late that answer lands.
+    let heard = false;
     let stop: (() => void) | undefined;
     void performStatus()
       .then((status) => {
-        if (live) setConnected(status.connected);
+        if (live && !heard) setConnected(status.connected);
       })
       .catch((error: unknown) => console.error("perform: status failed", error));
     void onPerformEvent((event) => {
+      heard = true;
       if (event.kind === "connected") setConnected(event.name);
       else if (event.kind === "disconnected") setConnected(null);
       else routePerformEvent(event, warned.current);

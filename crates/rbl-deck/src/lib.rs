@@ -396,7 +396,7 @@ impl Engine {
                     let after = reader.clock.position();
                     let fader = if i == 0 { fade_a } else { fade_b };
                     let Some(settings) = strip.channels.get(i) else { continue };
-                    channel.process(buffer, settings, curve, fader, tap.as_deref_mut().filter(|_| cueing.pfl(i))); // FLX: PFL, pre-fader
+                    channel.process(buffer, settings, curve, fader, tap.as_deref_mut().map(|tap| (tap, cueing.pfl(i)))); // FLX: PFL, pre-fader, ramped in the strip
                     // The click after the strip, so an EQ cut does not muffle
                     // it, and only while the deck is playing: a scrub crosses
                     // beats too, and nobody wants it clicking.

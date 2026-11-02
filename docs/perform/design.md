@@ -27,7 +27,7 @@ host emits `perform:event` and the bridge runs the upstream command.
 | Platter touch + rotate | fast | `scrub_begin` / `scrub_to_ms` (accumulated) / `scrub_end`: the audible drag is already a scratch primitive |
 | Side ring / untouched platter | fast | pitch bend: `set_tempo(base × (1 + k·delta))`, decays to `base` 80 ms after the last tick |
 | SHIFT + platter | fast | fast search: `seek_ms` by delta × 150 ms |
-| TEMPO slider | fast | `set_tempo(ratio)` with the UI's range; soft takeover on connect |
+| TEMPO slider | fast | `set_tempo(ratio)`, fixed ±6 % (`TEMPO_RANGE`). Soft takeover: on connect and after every engine rebuild the slider is inactive; it becomes active when its ratio lands within 0.001 of the deck's engine tempo or crosses it between two consecutive slider values. Never replayed onto a rebuilt engine |
 | TRIM, EQ ×3, channel fader | fast | `MixerSettings` channel: `set_trim`, `set_band`, fader |
 | Crossfader | fast | `MixerSettings::set_crossfade` |
 | FILTER | fast | needs a per-channel filter in the strip (not in upstream; our `FLX:` addition) |

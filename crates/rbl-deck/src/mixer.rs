@@ -417,6 +417,7 @@ pub struct Channel {
     gains: [Smoothed; 3],
     trim: Smoothed,
     fader: Smoothed,
+    pfl: Smoothed, // FLX: the cue tap's gain, so PFL ramps rather than clicks
 }
 
 impl Channel {
@@ -431,6 +432,7 @@ impl Channel {
             ],
             trim: Smoothed::new(1.0, rate),
             fader: Smoothed::new(1.0, rate),
+            pfl: Smoothed::new(0.0, rate), // FLX: PFL off until the first tap asks
         }
     }
 
@@ -438,12 +440,14 @@ impl Channel {
     ///
     /// `fader` is what the crossfader leaves this deck at. Every gain moves
     /// per frame rather than per buffer, so nothing here can click.
-    /// FLX: `tap`, when given, has the post-EQ, pre-fader signal added into it (the cue bus's PFL).
-    pub fn process(&mut self, out: &mut [f32], settings: &ChannelSettings, curve: Curve, fader: f32, mut tap: Option<&mut [f32]>) { // FLX: cue tap
+    /// FLX: `tap`, when given, is the cue pair and whether this deck is PFL'd; the post-EQ, pre-fader signal is added into it at a gain smoothed toward 1 or 0.
+    pub fn process(&mut self, out: &mut [f32], settings: &ChannelSettings, curve: Curve, fader: f32, mut tap: Option<(&mut [f32], bool)>) { // FLX: cue tap
         let wanted = settings.wanted(curve);
         let trim = settings.trim();
         let fader = fader * settings.level(); // FLX: the channel fader rides the crossfader's smoothing, after the cue tap
+        let pfl_target = if matches!(tap, Some((_, true))) { 1.0 } else { 0.0 }; // FLX: PFL ramp
         for (n, frame) in out.chunks_exact_mut(2).enumerate() { // FLX: n indexes the cue tap
+            let pfl = if tap.is_some() { self.pfl.step(pfl_target) } else { 0.0 }; // FLX: PFL ramp, idle without a cue pair
             let trim = self.trim.step(trim);
             let fader = self.fader.step(fader);
             let mut gains = [0.0_f32; 3];
@@ -459,7 +463,7 @@ impl Channel {
                 for (band, gain) in split.iter().zip(gains.iter()) {
                     sum += band * gain;
                 }
-                if let Some(cue) = tap.as_deref_mut().and_then(|tap| tap.get_mut(n * 2 + side)) { *cue += sum; } // FLX: pre-fader cue tap
+                if let Some(cue) = tap.as_mut().filter(|_| pfl > 0.0).and_then(|(tap, _)| tap.get_mut(n * 2 + side)) { *cue += sum * pfl; } // FLX: pre-fader cue tap
                 *sample = sum * fader;
             }
         }

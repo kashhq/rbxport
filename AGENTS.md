@@ -38,7 +38,7 @@ Ours, additive on top:
     bridge runs the matching `runCommand`.
 - `src/perform/`: the bridge. It listens to `perform:event`, calls
   `runCommand` with the deck scope, and pushes the LED-relevant state
-  (hot cue slots, loop, sync, master tempo, pad mode) back through the
+  (hot cue slots, sync, CUE, pad mode) back through the
   `perform_leds` command.
 - Cue bus: `rbl-deck` renders a second stereo pair (the headphone mix) into
   output lanes 3–4 when the device has them. Marked `FLX:` edits.

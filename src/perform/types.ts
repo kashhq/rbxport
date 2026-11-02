@@ -34,12 +34,14 @@ export interface PerformStatus {
   connected: string | null;
 }
 
+/**
+ * Only what the host lights. Master tempo and Q have no LED anyone has
+ * mapped on the FLX4 (`docs/perform/flx4-midi.md` §3.1), so they are not sent.
+ */
 export interface PerformDeckLeds {
   /** Slot A..H set, in pad order; always eight long. */
   hotCues: boolean[];
   sync: boolean;
-  masterTempo: boolean;
-  quantize: boolean;
   cue: boolean;
   /** The pad mode the UI is showing, or null when it has no opinion. */
   padMode: "hotCue" | "beatJump" | "beatLoop" | "keyShift" | null;

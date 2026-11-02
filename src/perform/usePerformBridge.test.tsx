@@ -12,18 +12,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { __setBackend } from "@/ipc/client";
 import type { Backend, DeckTick, Tick } from "@/ipc/types";
 import { __resetPerformDeckState, publishPerformDeckState } from "./deckState";
-import type { PerformEvent, PerformLeds } from "./types";
+import type { PerformEvent, PerformLeds, PerformStatus } from "./types";
 import { usePerformBridge, type PerformBridgeState } from "./usePerformBridge";
 
 const host = vi.hoisted(() => ({
   emit: null as ((event: PerformEvent) => void) | null,
   unlisten: vi.fn(),
   status: { connected: null as string | null },
+  /** How `performStatus` answers; a test may hold the answer back. */
+  answer: null as (() => Promise<PerformStatus>) | null,
   leds: [] as PerformLeds[],
 }));
 
 vi.mock("@/ipc/perform", () => ({
-  performStatus: () => Promise.resolve(host.status),
+  performStatus: () => host.answer?.() ?? Promise.resolve(host.status),
   performLeds: (leds: PerformLeds) => {
     host.leds.push(leds);
     return Promise.resolve();
@@ -69,6 +71,7 @@ beforeEach(async () => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   host.emit = null;
   host.status = { connected: null };
+  host.answer = null;
   host.leds = [];
   host.unlisten.mockClear();
   runCommand.mockClear();
@@ -158,18 +161,25 @@ describe("usePerformBridge", () => {
     expect(state.connected).toBe("DDJ-FLX4");
     expect(host.leds).toHaveLength(1);
     expect(host.leds[0]?.a).toEqual({
-      hotCues: Array.from({ length: 8 }, () => false), sync: false, masterTempo: false, quantize: true, cue: false, padMode: null,
+      hotCues: Array.from({ length: 8 }, () => false), sync: false, cue: false, padMode: null,
     });
 
     await act(async () => {
-      tick?.(both({ masterTempo: true }));
-      tick?.(both({ masterTempo: true }));
+      tick?.(both({}));
+      tick?.(both({}));
+      tick?.(both({}));
+      await Promise.resolve();
+    });
+    expect(host.leds).toHaveLength(2);
+    expect(host.leds[1]?.a).toMatchObject({ cue: true });
+    expect(host.leds[1]?.b).toMatchObject({ cue: true });
+
+    // Master tempo has no LED: a tick that changes only it reports nothing.
+    await act(async () => {
       tick?.(both({ masterTempo: true }));
       await Promise.resolve();
     });
     expect(host.leds).toHaveLength(2);
-    expect(host.leds[1]?.a).toMatchObject({ masterTempo: true, cue: true });
-    expect(host.leds[1]?.b).toMatchObject({ masterTempo: false, cue: true });
 
     await act(async () => {
       tick?.(both({ masterTempo: true, playing: true }));
@@ -184,15 +194,21 @@ describe("usePerformBridge", () => {
     expect(host.leds).toHaveLength(3);
   });
 
-  it("reads Q from the deck's saved flag", async () => {
-    localStorage.setItem("rbl.deckQuantize.v1", JSON.stringify({ b: false }));
-    await emit({ kind: "connected", name: "DDJ-FLX4" });
+  it("ignores a status answer that lands after an event", async () => {
+    act(() => root.unmount());
+    let answer: ((status: PerformStatus) => void) | undefined;
+    host.answer = () => new Promise<PerformStatus>((resolve) => { answer = resolve; });
+    root = createRoot(document.createElement("div"));
     await act(async () => {
-      tick?.(both({}));
+      root.render(<Probe />);
       await Promise.resolve();
     });
-    expect(host.leds.at(-1)?.a.quantize).toBe(true);
-    expect(host.leds.at(-1)?.b.quantize).toBe(false);
+    await emit({ kind: "connected", name: "DDJ-FLX4" });
+    await act(async () => {
+      answer?.({ connected: null });
+      await Promise.resolve();
+    });
+    expect(state.connected).toBe("DDJ-FLX4");
   });
 
   it("stops listening on unmount", () => {

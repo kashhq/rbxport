@@ -37,6 +37,10 @@ pub const MS_PER_TICK: f64 = 2.5;
 /// `[ASSUME]` tuned by feel against Mixxx's `delta × 0.8` jog, not measured.
 pub const BEND_PER_TICK: f32 = 0.004;
 
+/// The TEMPO slider picks up the deck when its ratio lands this close to
+/// the deck's tempo (soft takeover, `TempoPickup`).
+pub const TEMPO_PICKUP: f32 = 0.001;
+
 /// A bend holds this long after the last tick, then the base tempo returns.
 pub const BEND_HOLD: Duration = Duration::from_millis(80);
 
@@ -134,21 +138,45 @@ pub struct Bend {
 }
 
 /// What the engine said about a deck, read just before an event is decided.
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct DeckView {
     pub loaded: bool,
     /// Negative inside the pre-roll before the track's start.
     pub position_ms: f64,
+    /// The track's length; 0 while it is not known.
+    pub length_ms: f64,
     pub tempo: f32,
     pub key_shift: i8,
+}
+
+impl Default for DeckView {
+    /// An empty deck plays at its own speed, as a fresh deck clock does.
+    fn default() -> Self {
+        Self { loaded: false, position_ms: 0.0, length_ms: 0.0, tempo: 1.0, key_shift: 0 }
+    }
+}
+
+/// The TEMPO slider's soft takeover. On connect and on every new engine the
+/// slider is `Waiting`: its position says nothing about a deck the UI (or a
+/// sync) has set since. It goes `Live` once its ratio comes within
+/// `TEMPO_PICKUP` of the deck's tempo, or crosses it between two moves.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum TempoPickup {
+    #[default]
+    Waiting,
+    /// Waiting, and the ratio the slider last asked for.
+    Seen(f32),
+    Live,
 }
 
 impl DeckView {
     fn of(deck: &rbl_deck::DeckSnapshot, sample_rate: u32) -> Self {
         #[allow(clippy::cast_precision_loss, reason = "a track is far under 2^52 frames")]
         let frames = deck.position_frames as f64 - deck.pre_roll_frames as f64;
-        let position_ms = if sample_rate == 0 { 0.0 } else { frames * 1000.0 / f64::from(sample_rate) };
-        Self { loaded: deck.loaded, position_ms, tempo: deck.tempo, key_shift: deck.key_shift }
+        let to_ms = |frames: f64| if sample_rate == 0 { 0.0 } else { frames * 1000.0 / f64::from(sample_rate) };
+        #[allow(clippy::cast_precision_loss, reason = "a track is far under 2^52 frames")]
+        let length_ms = to_ms(deck.total_frames as f64);
+        Self { loaded: deck.loaded, position_ms: to_ms(frames), length_ms, tempo: deck.tempo, key_shift: deck.key_shift }
     }
 }
 
@@ -164,6 +192,7 @@ pub struct DeckState {
     pub pad_mode: Option<PadMode>,
     pub jog: Option<JogDrag>,
     pub bend: Option<Bend>,
+    pub tempo: TempoPickup,
     /// Last raw value per `DECK_CONTROLS` entry, to replay onto a new engine.
     controls: [Option<u16>; DECK_CONTROLS.len()],
     pub view: DeckView,
@@ -249,17 +278,23 @@ impl HostState {
         for deck in &mut self.decks {
             deck.jog = None;
             deck.bend = None;
+            deck.tempo = TempoPickup::Waiting;
         }
         true
     }
 
     /// Everything the controller has set, as ops: a fresh engine starts with
     /// the mixer and cue bus at their defaults, not where the hardware is.
+    /// Never the tempo: the UI reloads a rebuilt engine's decks at their own
+    /// tempo, and the slider picks them up from there (`TempoPickup`).
     pub fn replay(&self) -> Vec<FastOp> {
         let mut ops = Vec::new();
         for deck in Deck::ALL {
             let state = self.deck(deck);
             for (control, value) in DECK_CONTROLS.into_iter().zip(state.controls) {
+                if control == DeckControl::Tempo {
+                    continue;
+                }
                 if let Some(op) = value.and_then(|value| deck_op(deck, control, value)) {
                     ops.push(op);
                 }
@@ -368,6 +403,7 @@ pub fn decide(event: Event, state: &mut HostState, now: Instant) -> Outcome {
                 *slot = Some(value);
             }
             match deck_op(deck, control, value) {
+                Some(FastOp::Tempo { ratio, .. }) if !pick_up(state_deck, deck, ratio) => Outcome::Ignore,
                 Some(op) => {
                     // The slider moved under a bend: the bend now returns here.
                     if let (FastOp::Tempo { ratio, .. }, Some(bend)) = (op, state_deck.bend.as_mut()) {
@@ -392,6 +428,25 @@ pub fn decide(event: Event, state: &mut HostState, now: Instant) -> Outcome {
         Event::FxLevel { .. } => state.unhandled(Unhandled::FxLevel),
         Event::FxChannel { .. } => state.unhandled(Unhandled::FxChannel),
     }
+}
+
+/// Whether the slider drives the deck yet; see `TempoPickup`. The deck's
+/// tempo is the bend's base while a bend is in flight.
+fn pick_up(state: &mut DeckState, deck: Deck, ratio: f32) -> bool {
+    let target = state.bend.map_or(state.view.tempo, |bend| bend.base);
+    let offset = ratio - target;
+    let crossed = match state.tempo {
+        TempoPickup::Live => return true,
+        TempoPickup::Seen(previous) => (previous - target).signum() != offset.signum(),
+        TempoPickup::Waiting => false,
+    };
+    if crossed || offset.abs() <= TEMPO_PICKUP {
+        state.tempo = TempoPickup::Live;
+        tracing::debug!(?deck, ratio, target, "perform: tempo slider picked up the deck");
+        return true;
+    }
+    state.tempo = TempoPickup::Seen(ratio);
+    false
 }
 
 fn decide_button(state: &mut HostState, deck: Deck, button: Button, shift: bool, pressed: bool) -> Outcome {
@@ -446,7 +501,10 @@ fn decide_jog(state: &mut DeckState, deck: Deck, surface: JogSurface, delta: i8,
         // Touched: the platter is the record. Shifted ticks too, if SHIFT
         // went down after the hand did.
         (JogSurface::Platter, _, Some(drag)) => {
-            drag.position_ms += f64::from(delta) * MS_PER_TICK;
+            // Held inside the track, so a wind past either end comes straight
+            // back rather than having to be unwound first.
+            let end = if state.view.length_ms > 0.0 { state.view.length_ms } else { f64::INFINITY };
+            drag.position_ms = (drag.position_ms + f64::from(delta) * MS_PER_TICK).clamp(0.0, end);
             Outcome::Fast(FastOp::ScrubTo { deck, ms: drag.position_ms })
         }
         (JogSurface::Platter, true, None) if state.view.loaded => {
@@ -571,7 +629,7 @@ mod tests {
     fn loaded() -> HostState {
         let mut state = HostState::default();
         for deck in &mut state.decks {
-            deck.view = DeckView { loaded: true, position_ms: 1_000.0, tempo: 1.0, key_shift: 0 };
+            deck.view = DeckView { loaded: true, position_ms: 1_000.0, ..DeckView::default() };
         }
         state
     }
@@ -609,6 +667,7 @@ mod tests {
         assert_eq!(tempo_ratio(0x2000), 1.0);
         assert!(close(tempo_ratio(0x3FFF), 0.94), "{}", tempo_ratio(0x3FFF));
         let mut state = loaded();
+        state.decks[1].tempo = TempoPickup::Live;
         assert_eq!(
             fast(&run(&mut state, deck14(Deck::B, DeckControl::Tempo, 0))),
             FastOp::Tempo { deck: Deck::B, ratio: 1.06 }
@@ -747,6 +806,7 @@ mod tests {
     #[test]
     fn the_tempo_slider_under_a_bend_moves_the_bend_s_base() {
         let mut state = loaded();
+        state.decks[0].tempo = TempoPickup::Live;
         let now = Instant::now();
         decide(jog(Deck::A, JogSurface::Side, 3, false), &mut state, now);
         decide(deck14(Deck::A, DeckControl::Tempo, 0), &mut state, now);
@@ -839,11 +899,57 @@ mod tests {
             state.replay(),
             vec![
                 FastOp::Level { deck: Deck::A, level: 1.0 },
-                FastOp::Tempo { deck: Deck::B, ratio: 1.0 },
                 FastOp::Pfl { deck: Deck::B, on: true },
                 FastOp::Crossfade(0.0),
             ]
         );
+    }
+
+    #[test]
+    fn the_tempo_slider_waits_until_it_reaches_the_deck_s_tempo() {
+        let mut state = loaded();
+        state.decks[0].view.tempo = 1.03;
+        // 0x1000 is +3 %: from above 1.03 at 0x0000 (+6 %) down towards it.
+        assert_eq!(run(&mut state, deck14(Deck::A, DeckControl::Tempo, 0)), Outcome::Ignore);
+        assert_eq!(run(&mut state, deck14(Deck::A, DeckControl::Tempo, 0x0800)), Outcome::Ignore);
+        // Within TEMPO_PICKUP of 1.03: picked up, and the slider drives from now on.
+        let FastOp::Tempo { ratio, .. } = fast(&run(&mut state, deck14(Deck::A, DeckControl::Tempo, 0x1000))) else { panic!() };
+        assert!(close(ratio, 1.03), "{ratio}");
+        assert_eq!(state.decks[0].tempo, TempoPickup::Live);
+        assert_eq!(fast(&run(&mut state, deck14(Deck::A, DeckControl::Tempo, 0x2000))), FastOp::Tempo { deck: Deck::A, ratio: 1.0 });
+    }
+
+    #[test]
+    fn a_slider_jumping_across_the_deck_s_tempo_picks_it_up() {
+        let mut state = loaded();
+        state.decks[1].view.tempo = 1.0;
+        // +6 % then −3 %: never near 1.0, but it crossed.
+        assert_eq!(run(&mut state, deck14(Deck::B, DeckControl::Tempo, 0)), Outcome::Ignore);
+        let FastOp::Tempo { ratio, .. } = fast(&run(&mut state, deck14(Deck::B, DeckControl::Tempo, 0x3000))) else { panic!() };
+        assert!(close(ratio, 0.97), "{ratio}");
+        // Moves that stay on one side never pick up, and a new connection waits again.
+        let mut state = loaded();
+        for value in [0x0000, 0x0400, 0x0800, 0x0400] {
+            assert_eq!(run(&mut state, deck14(Deck::A, DeckControl::Tempo, value)), Outcome::Ignore);
+        }
+        state.decks[0].tempo = TempoPickup::Live;
+        state.release();
+        assert_eq!(state.decks[0].tempo, TempoPickup::Waiting);
+    }
+
+    #[test]
+    fn a_scratch_is_held_inside_the_track() {
+        let mut state = loaded();
+        state.decks[0].view.position_ms = 5.0;
+        state.decks[0].view.length_ms = 2_000.0;
+        run(&mut state, button(Deck::A, Button::JogTouch, false, true));
+        assert_eq!(fast(&run(&mut state, jog(Deck::A, JogSurface::Platter, -40, false))), FastOp::ScrubTo { deck: Deck::A, ms: 0.0 });
+        // Forward again moves at once from the start, not from 95 ms before it.
+        assert_eq!(fast(&run(&mut state, jog(Deck::A, JogSurface::Platter, 2, false))), FastOp::ScrubTo { deck: Deck::A, ms: 5.0 });
+        for _ in 0..20 {
+            run(&mut state, jog(Deck::A, JogSurface::Platter, 63, false));
+        }
+        assert_eq!(fast(&run(&mut state, jog(Deck::A, JogSurface::Platter, 1, false))), FastOp::ScrubTo { deck: Deck::A, ms: 2_000.0 });
     }
 
     #[test]

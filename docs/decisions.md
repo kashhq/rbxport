@@ -98,8 +98,18 @@ the host emits `deck:reset` as `set_audio_config` does.
 
 Why: the FLX4 switches pad pages itself and the UI never reports them; the UI's
 tempo range is frontend-only; a cue-bus `set_wish` rebuilds the engine at defaults.
-Decision: `HostState` tracks the page from mode-button presses (LEDs prefer it to
-the UI's `padMode`); the slider is a fixed ±6 % (`TEMPO_RANGE`, rekordbox's
-default); 14-bit values and PFL are replayed onto any engine not seen (by `Weak`).
-Consequence: SHIFT+SYNC's range never reaches the slider, and with no soft
-takeover a connect jumps each deck's tempo to its slider.
+Decision: `HostState` tracks the page from mode-button presses (LEDs prefer it);
+the slider is a fixed ±6 % (`TEMPO_RANGE`) with soft takeover (inactive after a
+connect or rebuild until within 0.001 of, or across, the deck's tempo); mixer
+values and PFL, never tempo, are replayed onto any engine not seen (by `Weak`).
+Consequence: SHIFT+SYNC's range never reaches the slider; masterTempo/quantize left the LED wire.
+
+## 2026-11-02 — The cue bus follows the audio output, not the MIDI link
+
+Why: lanes 3–4 are headphones only on the FLX4's own sound card; a controller
+plugged in while playing through speakers must not widen them, and a dropped
+MIDI send must not rebuild a playing engine.
+Decision: `perform-out` sets `cue` to "the output the Player opens is named
+DDJ-FLX4", checked on connect, on engine rebuild and on a `Player::device` change,
+calling `set_wish` only on a difference. Disconnect leaves the wish alone.
+Consequence: a system-default switch with no rebuild is seen at the next rebuild.
