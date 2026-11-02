@@ -93,6 +93,7 @@ import { autoRelocated, missingAmong, relocateSteps, relocateTracks } from "@/li
 import { useTooltip } from "@/store/usePreferences";
 import { useTranslation } from "@/i18n";
 import { nativeMenuLabels } from "@/lib/nativeMenu";
+import { usePublishPerformSync } from "@/perform/deckState"; // FLX: controller LEDs
 
 /** The commands the shell itself registers, and so the keys it runs. */
 const SHELL_COMMANDS: ReadonlySet<Action> = new Set<Action>([
@@ -294,6 +295,7 @@ function AppBody() {
    * deck the master puts its own light out.
    */
   const [synced, setSynced] = useState<Record<DeckId, boolean>>({ a: false, b: false });
+  usePublishPerformSync(synced); // FLX: controller LEDs
   const setSyncMaster = useCallback((deck: DeckId) => {
     setSyncMasterState(deck);
     setSynced((s) => (s[deck] ? { ...s, [deck]: false } : s));

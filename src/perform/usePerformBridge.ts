@@ -3,26 +3,23 @@
  * state the controller's LEDs show sent back with `perform_leds`. Mounted
  * once, by `PerformBridge`.
  *
- * What the LEDs can show is limited to state that lives outside upstream's
- * components, because `Player.tsx` and `App.tsx` are not ours to edit beyond
- * a hook line (`docs/fork.md`):
+ * Where each LED's state comes from:
  *
- * - master tempo and CUE: from `deck:tick`, as `usePlayback` reads them.
+ * - master tempo and CUE: `deck:tick`, as `usePlayback` reads them.
  * - quantize: `deckQuantize.ts`'s saved flag, re-read on each tick. Player
  *   saves it in an effect and announces nothing, and ticks stop when both
  *   decks fall silent, so a Q change on a stopped deck shows at the next tick.
- * - hot cue slots, SYNC and the pad mode: not reachable. The slots are the
- *   `cues` Player is handed, SYNC is `App.tsx`'s `synced` state and the pad
- *   mode is Player's `padMode`; all three are component state. They are sent
- *   dark (`padMode: null`) until a hook line publishes them.
+ * - hot cue slots, pad mode and SYNC: `deckState.ts`, which Player and App
+ *   publish to from their `FLX:` hook lines.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { getBackend } from "@/ipc/client";
 import { onPerformEvent, performLeds, performStatus } from "@/ipc/perform";
 import type { DeckId, DeckTick, Tick } from "@/ipc/types";
 import { runCommand } from "@/lib/commands";
 import { loadDeckQuantize } from "@/lib/deckQuantize";
+import { usePerformDeckState, type PerformDeckState } from "./deckState";
 import { commandsFor, isPress } from "./mapping";
 import type { PerformDeckLeds, PerformEvent, PerformLeds } from "./types";
 
@@ -31,46 +28,32 @@ export interface PerformBridgeState {
   connected: string | null;
 }
 
-const UNREACHABLE_HOT_CUES: readonly boolean[] = Array.from({ length: 8 }, () => false);
+/** The LEDs the engine's tick (and the Q flag read beside it) decides. */
+type EngineLeds = Pick<PerformDeckLeds, "masterTempo" | "quantize" | "cue">;
+type EngineDecks = Readonly<Record<DeckId, EngineLeds>>;
 
-function darkDeck(deck: DeckId): PerformDeckLeds {
+function engineLeds(deck: DeckId, tick: DeckTick | null): EngineLeds {
   return {
-    hotCues: [...UNREACHABLE_HOT_CUES],
-    sync: false,
-    masterTempo: false,
-    quantize: loadDeckQuantize(deck),
-    cue: false,
-    padMode: null,
-  };
-}
-
-function deckLeds(deck: DeckId, tick: DeckTick): PerformDeckLeds {
-  return {
-    hotCues: [...UNREACHABLE_HOT_CUES],
-    sync: false,
-    masterTempo: tick.masterTempo,
+    masterTempo: tick?.masterTempo ?? false,
     quantize: loadDeckQuantize(deck),
     // [ASSUME] lit while a loaded deck is stopped, as a CDJ's CUE is when it
     // waits on its cue point; the host may blink it, which is its business.
-    cue: tick.loaded && !tick.playing,
-    padMode: null,
+    cue: tick !== null && tick.loaded && !tick.playing,
   };
 }
 
-function sameDeck(a: PerformDeckLeds, b: PerformDeckLeds): boolean {
-  return a.sync === b.sync
-    && a.masterTempo === b.masterTempo
-    && a.quantize === b.quantize
-    && a.cue === b.cue
-    && a.padMode === b.padMode
-    && a.hotCues.length === b.hotCues.length
-    && a.hotCues.every((set, index) => set === b.hotCues[index]);
+function sameEngine(a: EngineLeds, b: EngineLeds): boolean {
+  return a.masterTempo === b.masterTempo && a.quantize === b.quantize && a.cue === b.cue;
 }
 
 /** The same object when nothing changed, so a tick that changes no LED renders nothing. */
-function nextLeds(previous: PerformLeds, tick: Tick): PerformLeds {
-  const next = { a: deckLeds("a", tick.a), b: deckLeds("b", tick.b) };
-  return sameDeck(previous.a, next.a) && sameDeck(previous.b, next.b) ? previous : next;
+function nextEngine(previous: EngineDecks, tick: Tick): EngineDecks {
+  const next = { a: engineLeds("a", tick.a), b: engineLeds("b", tick.b) };
+  return sameEngine(previous.a, next.a) && sameEngine(previous.b, next.b) ? previous : next;
+}
+
+function deckLeds(ui: PerformDeckState, engine: EngineLeds): PerformDeckLeds {
+  return { hotCues: [...ui.hotCues], sync: ui.synced, padMode: ui.padMode, ...engine };
 }
 
 /** An event with its deck, amount and press left out: one warning covers all of them. */
@@ -111,7 +94,10 @@ export function routePerformEvent(event: PerformEvent, warned: Set<string>): voi
 
 export function usePerformBridge(): PerformBridgeState {
   const [connected, setConnected] = useState<string | null>(null);
-  const [leds, setLeds] = useState<PerformLeds>(() => ({ a: darkDeck("a"), b: darkDeck("b") }));
+  const [engine, setEngine] = useState<EngineDecks>(() => ({ a: engineLeds("a", null), b: engineLeds("b", null) }));
+  const ui = usePerformDeckState();
+  // Changes identity only when an LED does: both inputs keep theirs otherwise.
+  const leds = useMemo<PerformLeds>(() => ({ a: deckLeds(ui.a, engine.a), b: deckLeds(ui.b, engine.b) }), [ui, engine]);
   const warned = useRef(new Set<string>());
 
   // The event stream, and the controller that was already there when the
@@ -140,7 +126,7 @@ export function usePerformBridge(): PerformBridgeState {
     };
   }, []);
 
-  // Deck state, only while a controller is there to show it.
+  // Engine state, only while a controller is there to show it.
   const linked = connected !== null;
   useEffect(() => {
     if (!linked) return;
@@ -149,7 +135,7 @@ export function usePerformBridge(): PerformBridgeState {
     void getBackend()
       .then((backend) => {
         if (!live) return;
-        stop = backend.onDeckTick((tick) => setLeds((previous) => nextLeds(previous, tick)));
+        stop = backend.onDeckTick((tick) => setEngine((previous) => nextEngine(previous, tick)));
       })
       .catch((error: unknown) => console.error("perform: no deck ticks for the LEDs", error));
     return () => {
@@ -158,8 +144,7 @@ export function usePerformBridge(): PerformBridgeState {
     };
   }, [linked]);
 
-  // One report per change: `leds` keeps its identity across ticks that
-  // change nothing. A new controller gets the full state.
+  // One report per change, never per tick. A new controller gets the full state.
   useEffect(() => {
     if (connected === null) return;
     performLeds(leds).catch((error: unknown) => console.error(`perform: LED report to ${connected} failed`, error));

@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 
 import { beatLoopLength, fixedJump, type Action } from "@/lib/shortcuts";
 import {
-  BEAT_JUMP_PAD_STEPS, BEAT_LOOP_PAD_BEATS, BUTTON_ACTIONS, commandsFor, GLOBAL_ACTIONS, isPress, PAD_ACTIONS,
+  BEAT_JUMP_PAD_STEPS, BEAT_LOOP_PAD_BEATS, BUTTON_ACTIONS, BUTTON_RELEASE_ACTIONS, commandsFor, GLOBAL_ACTIONS, isPress, PAD_ACTIONS,
 } from "./mapping";
 import type { PerformButton, PerformDeck, PerformEvent, PerformPadMode } from "./types";
 
@@ -52,8 +52,14 @@ describe("deck buttons", () => {
     }
   });
 
-  it("ignores every release", () => {
+  it("ends a CUE preview on release, shift or not, and ignores every other release", () => {
+    for (const deck of ["a", "b"] as const) {
+      expect(commandsFor(button(deck, "cue", false, false))).toEqual([{ action: "cueRelease", scope: deck }]);
+      expect(commandsFor(button(deck, "cue", true, false))).toEqual([{ action: "cueRelease", scope: deck }]);
+    }
+    expect(Object.keys(BUTTON_RELEASE_ACTIONS)).toEqual(["cue"]);
     for (const name of Object.keys(BUTTON_ACTIONS) as PerformButton[]) {
+      if (name === "cue") continue;
       expect(commandsFor(button("a", name, false, false))).toEqual([]);
       expect(commandsFor(button("a", name, true, false))).toEqual([]);
     }
@@ -131,7 +137,7 @@ describe("browse", () => {
   it.each([
     ["loadA", false, "loadPlayer1", "a"],
     ["loadA", true, null, "a"],
-    ["loadB", false, null, "b"],
+    ["loadB", false, "loadPlayer2", "b"],
     ["loadB", true, null, "b"],
     ["browsePress", false, null, "main"],
     ["browsePress", true, null, "main"],
