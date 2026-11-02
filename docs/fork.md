@@ -48,21 +48,25 @@ marked. Add to this list in the same change as the edit.
   (Player B's twin of `loadPlayer1`) after `loadPlayer1`.
 - `crates/README.md`: a `## Performance (fork)` table listing
   `rbl-controller`, marked `FLX:` on its heading.
-- The cue (headphone) bus, a second stereo pair on output lanes 3–4; the
-  logic is ours in `crates/rbl-deck/src/cue.rs` and `tests/cue.rs`:
-  - `crates/rbl-deck/src/sink.rs`: `Render` takes `Option<&mut [f32]>` (the
-    cue pair); `configure()` widens to ≥4 lanes when offered; `build()`
-    writes lanes 3–4 from the cue pair; `NullSink` passes `None`.
-  - `crates/rbl-deck/src/mixer.rs`: `Channel::process` gains a pre-fader
+- The cue (headphone) bus, a second stereo pair on output lanes 3–4, opt-in
+  through `StreamWish::cue`; the logic is ours in `crates/rbl-deck/src/cue.rs`
+  and `tests/cue.rs`. `FLX:` lines per file:
+  - `crates/rbl-deck/src/sink.rs` (17): `Render` takes `Option<&mut [f32]>`
+    (the cue pair); `StreamWish` gains `cue: bool`; `configure()` calls
+    `cue::widen_for_cue` (widens only when `wish.cue`); `build()` takes the
+    flag and writes lanes 3–4 from the cue pair; `NullSink` passes `None`.
+  - `crates/rbl-deck/src/mixer.rs` (5): `Channel::process` gains a pre-fader
     `tap` (post-EQ samples added into it).
-  - `crates/rbl-deck/src/lib.rs`: `mod cue`, `CueSettings` export,
-    `Engine::cue()`, and the PFL taps plus `CueMixer::finish` in the render
-    closure.
-  - `crates/rbl-deck/tests/allocations.rs`: the measured sink passes a cue
-    pair, with deck A PFL'd, so the cue path stays allocation-free.
-  - `crates/rbl-deck/examples/stripcost.rs`: `None` for the new `tap`;
-    `examples/startcost.rs` and `src-tauri/examples/deck_smoke.rs`: the
-    two-argument `Render` closure.
+  - `crates/rbl-deck/src/lib.rs` (19): `mod cue`, `CueSettings` export,
+    `Engine::cue()`, and the PFL taps plus `CueMixer::finish` (with the
+    master's `LimiterSettings`) in the render closure.
+  - `src-tauri/src/commands.rs` (1): `set_audio_config` builds its wish with
+    `..player.wish()`, so a Preferences change keeps the perform host's `cue`.
+  - `crates/rbl-deck/tests/allocations.rs` (6): the measured sink passes a
+    cue pair, with deck A PFL'd, so the cue path stays allocation-free.
+  - `crates/rbl-deck/examples/stripcost.rs` (1): `None` for the new `tap`;
+    `examples/startcost.rs` (1) and `src-tauri/examples/deck_smoke.rs` (1):
+    the two-argument `Render` closure.
 
 Rules for an upstream-file edit:
 

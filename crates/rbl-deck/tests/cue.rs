@@ -1,4 +1,4 @@
-//! The headphone (cue) bus end to end, on a four-lane sink with no device.
+//! The headphone (cue) bus end to end, on a sink with no device behind it.
 //!
 //! Fork addition (`docs/fork.md`). Drives the same render callback the device
 //! does, handing it a cue pair the way `sink::build` does when the device has
@@ -10,7 +10,7 @@ use std::path::Path;
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use rbl_deck::{Deck, DeckEvent, Engine, Render, Sink};
+use rbl_deck::{Deck, DeckEvent, Engine, Render, Sink, StreamWish};
 
 const RATE: u32 = 44_100;
 
@@ -49,24 +49,27 @@ fn flat_wav(path: &Path, frames: usize) {
     std::fs::write(path, out).unwrap();
 }
 
-/// A sink with lanes 3–4: every pull renders the master and the cue pair.
-struct FourLane {
+/// A controller sound card: stereo by default, four lanes on offer. Opened
+/// as `CpalSink` opens it — with `StreamWish::cue` it has lanes 3–4 and the
+/// render gets a cue pair; without, it stays stereo and gets `None`.
+struct Card {
     render: Mutex<Render>,
+    wish: StreamWish,
 }
 
-impl FourLane {
-    /// `frames` of master and of cue, as the device callback would get them.
-    fn pull(&self, frames: usize) -> (Vec<f32>, Vec<f32>) {
+impl Card {
+    /// `frames` of master and, when the bus is open, of cue.
+    fn pull(&self, frames: usize) -> (Vec<f32>, Option<Vec<f32>>) {
         let mut master = vec![0.0_f32; frames * 2];
-        let mut cue = vec![0.0_f32; frames * 2];
+        let mut cue = self.wish.cue.then(|| vec![0.0_f32; frames * 2]);
         let mut render = self.render.lock().unwrap();
-        render(&mut master, Some(&mut cue));
+        render(&mut master, cue.as_deref_mut());
         drop(render);
         (master, cue)
     }
 }
 
-impl Sink for FourLane {
+impl Sink for Card {
     fn sample_rate(&self) -> u32 {
         RATE
     }
@@ -78,8 +81,8 @@ impl Sink for FourLane {
     }
 }
 
-/// An engine on a four-lane sink with deck A loaded and playing.
-fn playing() -> (Engine, Arc<FourLane>, tempfile::TempDir) {
+/// An engine on the card, opened with `wish`, with deck A loaded and playing.
+fn playing_with(wish: StreamWish) -> (Engine, Arc<Card>, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("flat.wav");
     flat_wav(&path, RATE as usize * 4);
@@ -88,7 +91,7 @@ fn playing() -> (Engine, Arc<FourLane>, tempfile::TempDir) {
     let (sink_tx, sink_rx) = mpsc::channel();
     let engine = Engine::with_sink(
         move |render| {
-            let sink = Arc::new(FourLane { render: Mutex::new(render) });
+            let sink = Arc::new(Card { render: Mutex::new(render), wish });
             sink_tx.send(Arc::clone(&sink)).unwrap();
             Ok(sink as Arc<dyn Sink>)
         },
@@ -96,8 +99,8 @@ fn playing() -> (Engine, Arc<FourLane>, tempfile::TempDir) {
     )
     .expect("engine");
     let sink = sink_rx.recv().unwrap();
-    // The master level and the limiter both act on the master only; opened
-    // and off, the master is the decks' sum delayed by the lookahead.
+    // Opened and off: the master is the decks' sum delayed by the lookahead,
+    // and the cue's limiter, sharing these settings, is the same delay.
     engine.master().set_gain(1.0);
     engine.limiter().set_enabled(false);
 
@@ -111,8 +114,13 @@ fn playing() -> (Engine, Arc<FourLane>, tempfile::TempDir) {
     (engine, sink, dir)
 }
 
+/// The perform host's open: the cue bus wished for.
+fn playing() -> (Engine, Arc<Card>, tempfile::TempDir) {
+    playing_with(StreamWish { cue: true, ..StreamWish::default() })
+}
+
 /// Pulls until the deck has audio flowing, then returns `frames` more of it.
-fn settled(engine: &Engine, sink: &FourLane, frames: usize) -> (Vec<f32>, Vec<f32>) {
+fn settled(engine: &Engine, sink: &Card, frames: usize) -> (Vec<f32>, Option<Vec<f32>>) {
     let deadline = Instant::now() + Duration::from_secs(5);
     let mut pulled = 0;
     while pulled < SETTLE || engine.snapshot().a.position_frames < SETTLE as u64 {
@@ -136,6 +144,7 @@ fn a_deck_faded_out_of_the_room_is_still_in_the_headphones() {
     engine.cue().set_pfl(0, true);
     engine.cue().set_mix(0.0);
     let (master, cue) = settled(&engine, &sink, 1_024);
+    let cue = cue.expect("a cue pair");
     assert!(peak(&master) < INAUDIBLE, "deck A reached the room at {}", peak(&master));
     // Pre-fader, post-EQ: a flat strip passes the file's own level.
     let quiet = cue.iter().fold(f32::MAX, |least, s| least.min(s.abs()));
@@ -151,6 +160,7 @@ fn mix_at_one_puts_the_master_in_the_headphones() {
     engine.cue().set_pfl(0, true);
     engine.cue().set_mix(1.0);
     let (master, cue) = settled(&engine, &sink, 1_024);
+    let cue = cue.expect("a cue pair");
     assert!(peak(&master) > 0.5, "the master is too quiet to compare: {}", peak(&master));
     let worst = master.iter().zip(&cue).fold(0.0_f32, |worst, (m, c)| worst.max((m - c).abs()));
     assert!(worst < 1e-6, "the cue differed from the master by {worst}");
@@ -161,6 +171,27 @@ fn no_pfl_and_mix_at_cue_is_silence() {
     let (engine, sink, _dir) = playing();
     engine.cue().set_mix(0.0);
     let (master, cue) = settled(&engine, &sink, 1_024);
+    let cue = cue.expect("a cue pair");
     assert!(peak(&master) > 0.5, "the deck should be playing in the room");
     assert!(peak(&cue) < INAUDIBLE, "nothing is cued, yet the headphones carried {}", peak(&cue));
+}
+
+#[test]
+fn a_stereo_open_without_the_wish_renders_the_master_as_before() {
+    // No `cue` in the wish: the card stays at its stereo default and the
+    // render is handed `None`, exactly as upstream's was. PFL is ignored and
+    // the master is what a cue-bus open makes of the same deck.
+    let (engine, sink, _dir) = playing_with(StreamWish::default());
+    engine.cue().set_pfl(0, true);
+    let (master, cue) = settled(&engine, &sink, 1_024);
+    assert!(cue.is_none(), "an unwished open was handed a cue pair");
+
+    let (wished, wished_sink, _wished_dir) = playing();
+    wished.cue().set_pfl(0, true);
+    let (reference, _) = settled(&wished, &wished_sink, 1_024);
+    // A steady fixture, so the two settled masters agree sample for sample.
+    let level = |out: &[f32]| out.iter().fold(f32::MAX, |least, s| least.min(*s));
+    assert!((level(&master) - FLAT).abs() < 0.02, "the master carried {}", level(&master));
+    let worst = master.iter().zip(&reference).fold(0.0_f32, |worst, (a, b)| worst.max((a - b).abs()));
+    assert!(worst < 1e-4, "the stereo master differed from the cue-bus one by {worst}");
 }

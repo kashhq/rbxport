@@ -76,5 +76,20 @@ Decision: `Channel::process` adds its post-EQ sample into an optional `tap`
 (the sink's cue chunk directly, no extra engine buffers); `Render` takes
 `Option<&mut [f32]>`, `None` below four lanes, so a stereo device computes
 nothing cue-related. The cue mix reads the post-limiter, post-clamp master.
-Consequence: the cue sum has no limiter, only a ±1 clamp; `configure()` opens
-the fewest lanes ≥4 a device offers at its default format and rate.
+Consequence: `CueMixer` owns a second `Limiter` on the PFL sum, driven by the
+master's `LimiterSettings` (one switch for both; off, the cue only clamps).
+It runs before the master is blended in, not after the mix as first asked:
+limiting the blend delays the master twice and combs a deck that is both cued
+and live.
+
+## 2026-11-02 — Widening to four output lanes is opt-in (`StreamWish::cue`)
+
+Why: a four-out audio interface's lanes 3–4 are not necessarily headphones;
+widening every device would send the cue mix to someone's monitors or a
+second zone. Only a connected controller says where the headphones are.
+Decision: `StreamWish` gains `cue: bool`, default false. False keeps the
+device's default lanes and hands the render `None`, as upstream; true widens
+to the fewest lanes ≥4 at the same format and rate. `set_audio_config` keeps
+`cue` via `..player.wish()`. The perform host sets it on controller connect.
+Consequence: setting it drops the engine (`Player::set_wish` returns true), so
+the host emits `deck:reset` as `set_audio_config` does.

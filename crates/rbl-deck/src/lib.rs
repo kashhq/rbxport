@@ -451,7 +451,7 @@ impl Engine {
             mixing.rms_right.store(rms_right.to_bits(), Ordering::Relaxed);
             mixing.report(left, right);
             // FLX: the headphone mix, from the PFL sum and the finished master.
-            if let Some(cue) = cue { cue_mixer.get_or_insert_with(|| CueMixer::new(&cueing, rate)).finish(cue, out, &cueing); } // FLX: cue bus
+            if let Some(cue) = cue { cue_mixer.get_or_insert_with(|| CueMixer::new(&cueing, rate)).finish(cue, out, &cueing, &limiting); } // FLX: cue bus, limited as the master is
         });
 
         let sink = open(render)?;

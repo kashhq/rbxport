@@ -2496,7 +2496,7 @@ pub async fn set_audio_config<R: tauri::Runtime>(
     sample_rate: Option<u32>,
     buffer_frames: Option<u32>,
 ) -> AppResult<()> {
-    if player.set_wish(rbl_deck::StreamWish { sample_rate, buffer_frames }) {
+    if player.set_wish(rbl_deck::StreamWish { sample_rate, buffer_frames, ..player.wish() }) { // FLX: keeps the perform host's `cue`
         let _ = tauri::Emitter::emit(&app, "deck:reset", ());
     }
     Ok(())

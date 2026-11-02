@@ -239,6 +239,7 @@ pub struct StreamWish {
     pub sample_rate: Option<u32>,
     /// Frames per callback.
     pub buffer_frames: Option<u32>,
+    pub cue: bool, // FLX: open lanes 3-4 for the headphone cue bus (the perform host sets it)
 }
 
 /// The device's configuration for a wish: its default, at the wished rate
@@ -250,7 +251,7 @@ fn configure(device: &cpal::Device, wish: StreamWish) -> Result<(cpal::StreamCon
     let format = supported.sample_format();
     let buffer_range = *supported.buffer_size();
     let mut config: cpal::StreamConfig = supported.into();
-    crate::cue::widen_for_cue(device, format, &mut config); // FLX: open lanes 3-4 for the cue bus
+    crate::cue::widen_for_cue(device, format, &mut config, wish.cue); // FLX: open lanes 3-4 for the cue bus, when wished
 
     if let Some(rate) = wish.sample_rate {
         // Among the device's ranges, one at the default format that covers
@@ -315,10 +316,10 @@ fn build_stream(render: Render, wanted: Option<&str>, wish: StreamWish, health: 
         _ => tracing::error!(error = %e, "audio device error"),
     };
     let stream = match format {
-        cpal::SampleFormat::F32 => build::<f32>(&device, config, channels, render, error, health),
-        cpal::SampleFormat::I16 => build::<i16>(&device, config, channels, render, error, health),
-        cpal::SampleFormat::U16 => build::<u16>(&device, config, channels, render, error, health),
-        cpal::SampleFormat::I32 => build::<i32>(&device, config, channels, render, error, health),
+        cpal::SampleFormat::F32 => build::<f32>(&device, config, channels, render, error, health, wish.cue), // FLX: cue bus
+        cpal::SampleFormat::I16 => build::<i16>(&device, config, channels, render, error, health, wish.cue), // FLX: cue bus
+        cpal::SampleFormat::U16 => build::<u16>(&device, config, channels, render, error, health, wish.cue), // FLX: cue bus
+        cpal::SampleFormat::I32 => build::<i32>(&device, config, channels, render, error, health, wish.cue), // FLX: cue bus
         other => Err(DeckError::Device(format!("this device wants {other} samples, which we do not write"))),
     }?;
     Ok((stream, rate))
@@ -335,6 +336,7 @@ fn build<T>(
     mut render: Render,
     error: fn(cpal::Error),
     health: Arc<HealthMeter>,
+    cue_wished: bool, // FLX: cue bus
 ) -> Result<cpal::Stream>
 where
     T: cpal::SizedSample + cpal::FromSample<f32>,
@@ -362,7 +364,7 @@ where
                         continue;
                     };
                     stereo.fill(0.0);
-                    let mut cue_pair = if lanes >= 4 { cue.get_mut(..frames * 2) } else { None }; // FLX: cue bus
+                    let mut cue_pair = if crate::cue::renders_cue(cue_wished, lanes) { cue.get_mut(..frames * 2) } else { None }; // FLX: cue bus
                     render(stereo, cue_pair.as_deref_mut()); // FLX: cue bus
                     // Stereo into however many lanes the device has: a third
                     // and further channels stay silent rather than repeating.
