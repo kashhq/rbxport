@@ -1,0 +1,13 @@
+[package]
+name = "rbl-controller"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "DJ-controller MIDI decoding and LED rendering, one map per controller."
+
+[lints]
+workspace = true
+
+[dependencies]
+tracing = { workspace = true }

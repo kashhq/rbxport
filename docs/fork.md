@@ -33,7 +33,21 @@ marked. Add to this list in the same change as the edit.
 
 - `src-tauri/src/lib.rs`: the `perform` module line, its managed state, and
   its commands in `generate_handler!`.
-- `src/app/App.tsx`: one line mounting the controller bridge.
+- `src/app/App.tsx`: four `FLX:` lines: the `usePublishPerformSync` import
+  after the `nativeMenu` import; the lazy `PerformBridge` import after the
+  other `lazy(...)` dialogs; `usePublishPerformSync(synced)` right after the
+  `synced` state; `<Suspense fallback={null}><PerformBridge /></Suspense>`
+  right after `<ConfirmHost />` in the render.
+- `src/lib/shortcuts.ts`: two `FLX:` lines in the `Action` union,
+  `"loadPlayer2"` after `"loadPlayer1"` and `"cueRelease"` after `"cue"`.
+  No key binds either.
+- `src/views/player/Player.tsx`: four `FLX:` lines: the `usePublishPerformDeck`
+  import after the CSS module import; `usePublishPerformDeck(deck, { cues, padMode })`
+  right after `useTrackCues`; in `deckCommands`, `cueRelease` (calls
+  `dropCue`, what the cue key's keyup calls) after `cue`, and `loadPlayer2`
+  (Player B's twin of `loadPlayer1`) after `loadPlayer1`.
+- `crates/README.md`: a `## Performance (fork)` table listing
+  `rbl-controller`, marked `FLX:` on its heading.
 - The cue (headphone) bus, a second stereo pair on output lanes 3–4; the
   logic is ours in `crates/rbl-deck/src/cue.rs` and `tests/cue.rs`:
   - `crates/rbl-deck/src/sink.rs`: `Render` takes `Option<&mut [f32]>` (the

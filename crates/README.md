@@ -40,6 +40,12 @@ These crates are independent of Tauri; application coordination belongs in
 | [rbl-fakecdj](rbl-fakecdj/README.md) | Socket-level test client, not firmware emulation. |
 | [rbl-difftool](rbl-difftool/README.md) | Read-only database change recording. |
 
+## Performance (fork) <!-- FLX: fork-only crates, see docs/fork.md -->
+
+| Crate | Responsibility |
+| --- | --- |
+| [rbl-controller](rbl-controller/README.md) | DJ-controller MIDI to typed events, and LED state to MIDI. |
+
 ## First change
 
 1. Read the owning crate's README, public API, and a nearby test.

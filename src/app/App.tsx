@@ -93,6 +93,7 @@ import { autoRelocated, missingAmong, relocateSteps, relocateTracks } from "@/li
 import { useTooltip } from "@/store/usePreferences";
 import { useTranslation } from "@/i18n";
 import { nativeMenuLabels } from "@/lib/nativeMenu";
+import { usePublishPerformSync } from "@/perform/deckState"; // FLX: controller LEDs
 
 /** The commands the shell itself registers, and so the keys it runs. */
 const SHELL_COMMANDS: ReadonlySet<Action> = new Set<Action>([
@@ -122,6 +123,7 @@ const Preferences = lazy(() => import("@/views/settings/Preferences").then(m => 
 const SyncManager = lazy(() => import("@/views/sync/SyncManager").then(m => ({ default: m.SyncManager })));
 const SmartPlaylistEditor = lazy(() => import("@/views/tree/SmartPlaylistEditor").then(m => ({ default: m.SmartPlaylistEditor })));
 const MissingFileManager = lazy(() => import("@/views/library/MissingFileManager").then(m => ({ default: m.MissingFileManager })));
+const PerformBridge = lazy(() => import("@/perform/PerformBridge").then(m => ({ default: m.PerformBridge }))); // FLX: controller bridge
 
 const SHOW_MAIN_SUPPORT = true;
 
@@ -293,6 +295,7 @@ function AppBody() {
    * deck the master puts its own light out.
    */
   const [synced, setSynced] = useState<Record<DeckId, boolean>>({ a: false, b: false });
+  usePublishPerformSync(synced); // FLX: controller LEDs
   const setSyncMaster = useCallback((deck: DeckId) => {
     setSyncMasterState(deck);
     setSynced((s) => (s[deck] ? { ...s, [deck]: false } : s));
@@ -3028,6 +3031,7 @@ function AppBody() {
     <PreferencesProvider value={prefs}>
     <MasterOutputConnection mode={viewPrefs.vuMeter} />
     <ConfirmHost />
+    <Suspense fallback={null}><PerformBridge /></Suspense>{/* FLX: controller bridge */}
     <div className={styles.window} data-platform={platform.linux ? "linux" : platform.mac ? "mac" : "windows"}>
       <div
         className={styles.titleBar}

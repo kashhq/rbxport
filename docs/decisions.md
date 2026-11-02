@@ -46,6 +46,28 @@ rbxport) and recorded in `docs/perform/flx4-midi.md`.
 Consequence: a second controller is a new map module and a test file, no app
 changes.
 
+## 2026-11-02 — FLX4 LEDs render as a fixed frame and diff
+
+Why: pad LEDs are addressed by the shown mode's notes, so a mode change must
+clear the old mode's pads; ad-hoc per-field diffing misses those clears.
+Decision: `Leds` renders every driven address in a fixed order (pads lit only
+for `pad_mode`), and `messages(previous)` diffs two frames elementwise.
+Consequence: diffing re-sends the jog-ring "loaded" animation only when
+`loaded` changes; to retrigger it on a second load the host clears `loaded`
+for one frame. Shutdown writes the all-off frame plus the sampler pads.
+
+## 2026-11-02 — Bridge IPC lives in `src/ipc/perform.ts`; UI LED state via a store
+
+Why: adding `perform_*` to upstream's `Backend` means editing its types, client
+and mock. Hot cue slots, pad mode (Player) and SYNC (`App.tsx`) are component
+state; CUE's preview ends on the key's keyup, not a command.
+Decision: a standalone IPC module, no-op outside Tauri. `src/perform/deckState.ts`
+is a tiny store Player and App publish to from one-call `FLX:` hook lines;
+master tempo/CUE come from `deck:tick`, Q from `deckQuantize.ts` per tick. Ours:
+`cueRelease` and `loadPlayer2` actions. Unnamed shift variants run nothing.
+Consequence: Player's pad row is only "cue" or "grid", so `padMode` is never
+beatJump/beatLoop/keyShift from the UI; the host owns those pages.
+
 ## 2026-11-02 — The cue bus taps the strip, and lives behind `Option`
 
 Why: PFL must be post-EQ, pre-fader; running the EQ a second time per deck
