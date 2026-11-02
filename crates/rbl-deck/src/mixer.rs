@@ -432,10 +432,11 @@ impl Channel {
     ///
     /// `fader` is what the crossfader leaves this deck at. Every gain moves
     /// per frame rather than per buffer, so nothing here can click.
-    pub fn process(&mut self, out: &mut [f32], settings: &ChannelSettings, curve: Curve, fader: f32) {
+    /// FLX: `tap`, when given, has the post-EQ, pre-fader signal added into it (the cue bus's PFL).
+    pub fn process(&mut self, out: &mut [f32], settings: &ChannelSettings, curve: Curve, fader: f32, mut tap: Option<&mut [f32]>) { // FLX: cue tap
         let wanted = settings.wanted(curve);
         let trim = settings.trim();
-        for frame in out.chunks_exact_mut(2) {
+        for (n, frame) in out.chunks_exact_mut(2).enumerate() { // FLX: n indexes the cue tap
             let trim = self.trim.step(trim);
             let fader = self.fader.step(fader);
             let mut gains = [0.0_f32; 3];
@@ -451,6 +452,7 @@ impl Channel {
                 for (band, gain) in split.iter().zip(gains.iter()) {
                     sum += band * gain;
                 }
+                if let Some(cue) = tap.as_deref_mut().and_then(|tap| tap.get_mut(n * 2 + side)) { *cue += sum; } // FLX: pre-fader cue tap
                 *sample = sum * fader;
             }
         }
@@ -484,7 +486,7 @@ mod tests {
 
     fn run(channel: &mut Channel, settings: &ChannelSettings, curve: Curve, hz: f32) -> f32 {
         let mut audio = tone(hz, RATE as usize / 2);
-        channel.process(&mut audio, settings, curve, 1.0);
+        channel.process(&mut audio, settings, curve, 1.0, None); // FLX: cue tap
         settled_peak(&audio)
     }
 

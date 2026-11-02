@@ -45,3 +45,14 @@ device. The map is derived from Mixxx's GPL-2 FLX4 mapping (same licence as
 rbxport) and recorded in `docs/perform/flx4-midi.md`.
 Consequence: a second controller is a new map module and a test file, no app
 changes.
+
+## 2026-11-02 — The cue bus taps the strip, and lives behind `Option`
+
+Why: PFL must be post-EQ, pre-fader; running the EQ a second time per deck
+doubles the strip's cost, and a separate cue renderer would fork the mixer.
+Decision: `Channel::process` adds its post-EQ sample into an optional `tap`
+(the sink's cue chunk directly, no extra engine buffers); `Render` takes
+`Option<&mut [f32]>`, `None` below four lanes, so a stereo device computes
+nothing cue-related. The cue mix reads the post-limiter, post-clamp master.
+Consequence: the cue sum has no limiter, only a ±1 clamp; `configure()` opens
+the fewest lanes ≥4 a device offers at its default format and rate.

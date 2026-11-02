@@ -34,9 +34,21 @@ marked. Add to this list in the same change as the edit.
 - `src-tauri/src/lib.rs`: the `perform` module line, its managed state, and
   its commands in `generate_handler!`.
 - `src/app/App.tsx`: one line mounting the controller bridge.
-- `crates/rbl-deck/src/sink.rs`, `lib.rs`, `mixer.rs`: the cue (headphone)
-  bus — a second stereo pair rendered to output lanes 3–4. (Planned; update
-  when landed.)
+- The cue (headphone) bus, a second stereo pair on output lanes 3–4; the
+  logic is ours in `crates/rbl-deck/src/cue.rs` and `tests/cue.rs`:
+  - `crates/rbl-deck/src/sink.rs`: `Render` takes `Option<&mut [f32]>` (the
+    cue pair); `configure()` widens to ≥4 lanes when offered; `build()`
+    writes lanes 3–4 from the cue pair; `NullSink` passes `None`.
+  - `crates/rbl-deck/src/mixer.rs`: `Channel::process` gains a pre-fader
+    `tap` (post-EQ samples added into it).
+  - `crates/rbl-deck/src/lib.rs`: `mod cue`, `CueSettings` export,
+    `Engine::cue()`, and the PFL taps plus `CueMixer::finish` in the render
+    closure.
+  - `crates/rbl-deck/tests/allocations.rs`: the measured sink passes a cue
+    pair, with deck A PFL'd, so the cue path stays allocation-free.
+  - `crates/rbl-deck/examples/stripcost.rs`: `None` for the new `tap`;
+    `examples/startcost.rs` and `src-tauri/examples/deck_smoke.rs`: the
+    two-argument `Render` closure.
 
 Rules for an upstream-file edit:
 
