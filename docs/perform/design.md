@@ -36,10 +36,10 @@ host emits `perform:event` and the bridge runs the upstream command.
 | BEAT SYNC / long / SHIFT | slow | `sync` / `masterTempo` / tempo range |
 | LOOP IN/OUT, RELOOP, CALL ◀ ▶ | slow | `loopIn`, `loopOut`, `reloop`, `loopHalf`, `loopDouble` |
 | Hot cue pads 1–8, SHIFT | slow | `hotCueA`…`hotCueH`, `clearHotCueA`… |
-| Beat loop pads | slow | `beatLoop¼`…`beatLoop32` (upstream's `BEAT_LOOP_BEATS`) |
+| Beat loop pads | slow | `beatLoop1`…`beatLoop32` on pads 3–8 (upstream's `BEAT_LOOP_BEATS`); the ¼ and ½ pads have no upstream command |
 | Beat jump pads | slow | upstream's fixed jumps (`FIXED_JUMPS`) |
 | Key shift pads | fast | `set_key_shift(semitones)` |
-| BROWSE rotate / press, LOAD 1/2 | slow | `moveDown`/`moveUp`, `loadPlayer1`/`loadPlayer2` (scope `main`) |
+| BROWSE rotate / press, LOAD 1/2 | slow | `moveDown`/`moveUp` (scope `main`), `loadPlayer1` (scope `a`, Player A registers it); press and LOAD 2 have no upstream command |
 | Beat FX | — | not in milestone 1 |
 | Sampler, Pad FX, Keyboard, Smart CFX/Fader | — | not in milestone 1 |
 

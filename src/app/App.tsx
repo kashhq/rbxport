@@ -122,6 +122,7 @@ const Preferences = lazy(() => import("@/views/settings/Preferences").then(m => 
 const SyncManager = lazy(() => import("@/views/sync/SyncManager").then(m => ({ default: m.SyncManager })));
 const SmartPlaylistEditor = lazy(() => import("@/views/tree/SmartPlaylistEditor").then(m => ({ default: m.SmartPlaylistEditor })));
 const MissingFileManager = lazy(() => import("@/views/library/MissingFileManager").then(m => ({ default: m.MissingFileManager })));
+const PerformBridge = lazy(() => import("@/perform/PerformBridge").then(m => ({ default: m.PerformBridge }))); // FLX: controller bridge
 
 const SHOW_MAIN_SUPPORT = true;
 
@@ -3028,6 +3029,7 @@ function AppBody() {
     <PreferencesProvider value={prefs}>
     <MasterOutputConnection mode={viewPrefs.vuMeter} />
     <ConfirmHost />
+    <Suspense fallback={null}><PerformBridge /></Suspense>{/* FLX: controller bridge */}
     <div className={styles.window} data-platform={platform.linux ? "linux" : platform.mac ? "mac" : "windows"}>
       <div
         className={styles.titleBar}

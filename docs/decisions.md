@@ -55,3 +55,14 @@ for `pad_mode`), and `messages(previous)` diffs two frames elementwise.
 Consequence: diffing re-sends the jog-ring "loaded" animation only when
 `loaded` changes; to retrigger it on a second load the host clears `loaded`
 for one frame. Shutdown writes the all-off frame plus the sampler pads.
+
+## 2026-11-02 — Bridge IPC lives in `src/ipc/perform.ts`; some LEDs are dark
+
+Why: adding `perform_*` to upstream's `Backend` means editing its types, client
+and mock. Hot cue slots (Player's `cues` prop), SYNC (`App.tsx` `synced` state)
+and pad mode (Player's `padMode`) are component state we may not edit.
+Decision: a standalone IPC module, no-op outside Tauri. LEDs send master tempo
+and CUE from `deck:tick`, Q from `deckQuantize.ts` re-read per tick; the rest
+dark. Unshifted-only rows: a shift variant the design does not name runs nothing.
+Consequence: lighting slots/SYNC needs an `FLX:` publish line; controller CUE
+cannot end a preview (upstream ends it on keyup, not a command).
