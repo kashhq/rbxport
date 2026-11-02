@@ -3936,6 +3936,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "rbl-controller"
+version = "1.9.0"
+dependencies = [
+ "tracing",
+]
+
+[[package]]
 name = "rbl-core"
 version = "1.9.0"
 dependencies = [

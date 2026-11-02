@@ -45,3 +45,13 @@ device. The map is derived from Mixxx's GPL-2 FLX4 mapping (same licence as
 rbxport) and recorded in `docs/perform/flx4-midi.md`.
 Consequence: a second controller is a new map module and a test file, no app
 changes.
+
+## 2026-11-02 — FLX4 LEDs render as a fixed frame and diff
+
+Why: pad LEDs are addressed by the shown mode's notes, so a mode change must
+clear the old mode's pads; ad-hoc per-field diffing misses those clears.
+Decision: `Leds` renders every driven address in a fixed order (pads lit only
+for `pad_mode`), and `messages(previous)` diffs two frames elementwise.
+Consequence: diffing re-sends the jog-ring "loaded" animation only when
+`loaded` changes; to retrigger it on a second load the host clears `loaded`
+for one frame. Shutdown writes the all-off frame plus the sampler pads.
